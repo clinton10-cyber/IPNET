@@ -5,14 +5,19 @@ import json as json_lib
 import requests
 from datetime import datetime
 from functools import wraps
-from flask import Flask, g, render_template, request, jsonify, redirect, url_for, session, flash
+from flask import Flask, g, render_template, request, jsonify, redirect, url_for, session, flash, send_from_directory
 from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.utils import secure_filename
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 DB_PATH = os.path.join(BASE_DIR, "ipnet.db")
+UPLOAD_DIR = os.path.join(BASE_DIR, "static", "uploads")
+ALLOWED_IMAGE_EXT = {"png", "jpg", "jpeg", "gif", "webp"}
+MAX_UPLOAD_BYTES = 5 * 1024 * 1024  # 5MB
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", secrets.token_hex(32))
+app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_BYTES
 
 ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "changeme123")
@@ -21,6 +26,114 @@ ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "changeme123")
 PAYSTACK_SECRET_KEY = os.environ.get("PAYSTACK_SECRET_KEY", "")
 PAYSTACK_PUBLIC_KEY = os.environ.get("PAYSTACK_PUBLIC_KEY", "")
 NGN_PER_USD = float(os.environ.get("NGN_PER_USD", "1600"))  # used to show wallet in USD equiv; adjust as needed
+
+# ---------------------------------------------------------------------------
+# Location-based currency display
+# ---------------------------------------------------------------------------
+# Prices are stored and charged in USD internally (wallet, checkout, orders).
+# What changes per-visitor is only the DISPLAY currency, detected from their IP
+# on first visit and overridable any time via the currency picker in the header.
+
+CURRENCIES = {
+    "USD": {"symbol": "$", "name": "US Dollar"},
+    "NGN": {"symbol": "₦", "name": "Nigerian Naira"},
+    "GBP": {"symbol": "£", "name": "British Pound"},
+    "EUR": {"symbol": "€", "name": "Euro"},
+    "GHS": {"symbol": "GH₵", "name": "Ghanaian Cedi"},
+    "KES": {"symbol": "KSh", "name": "Kenyan Shilling"},
+    "ZAR": {"symbol": "R", "name": "South African Rand"},
+    "INR": {"symbol": "₹", "name": "Indian Rupee"},
+    "CAD": {"symbol": "C$", "name": "Canadian Dollar"},
+    "AUD": {"symbol": "A$", "name": "Australian Dollar"},
+    "EGP": {"symbol": "E£", "name": "Egyptian Pound"},
+    "PKR": {"symbol": "₨", "name": "Pakistani Rupee"},
+}
+
+# Fallback rates (USD -> currency), used if the live rate lookup fails or hasn't
+# run yet. The live lookup (refreshed every few hours via a free, keyless API)
+# overrides these whenever it succeeds.
+FALLBACK_RATES = {
+    "USD": 1.0, "NGN": NGN_PER_USD, "GBP": 0.78, "EUR": 0.92, "GHS": 15.5,
+    "KES": 129.0, "ZAR": 18.2, "INR": 84.0, "CAD": 1.37, "AUD": 1.52,
+    "EGP": 48.5, "PKR": 279.0,
+}
+
+FX_CACHE_SECONDS = 6 * 3600
+
+
+def get_client_ip():
+    fwd = request.headers.get("X-Forwarded-For", "")
+    if fwd:
+        return fwd.split(",")[0].strip()
+    return request.remote_addr or ""
+
+
+def get_fx_rates():
+    """Dict of USD->currency rates, cached in the settings table and refreshed
+    at most once every FX_CACHE_SECONDS. Falls back to FALLBACK_RATES on error."""
+    cached_at = get_setting("fx_rates_at", "")
+    cached_json = get_setting("fx_rates_json", "")
+    if cached_at and cached_json:
+        try:
+            age = (datetime.utcnow() - datetime.fromisoformat(cached_at)).total_seconds()
+            if age < FX_CACHE_SECONDS:
+                return json_lib.loads(cached_json)
+        except Exception:
+            pass
+    try:
+        resp = requests.get("https://open.er-api.com/v6/latest/USD", timeout=6)
+        payload = resp.json()
+        rates = payload.get("rates", {})
+        if rates:
+            merged = dict(FALLBACK_RATES)
+            for code in CURRENCIES:
+                if code in rates:
+                    merged[code] = rates[code]
+            set_setting("fx_rates_json", json_lib.dumps(merged))
+            set_setting("fx_rates_at", datetime.utcnow().isoformat())
+            return merged
+    except Exception:
+        pass
+    return dict(FALLBACK_RATES)
+
+
+def detect_currency_from_ip(ip):
+    """Best-effort IP geolocation to a currency code. Returns 'USD' on failure."""
+    if not ip or ip.startswith(("127.", "10.", "192.168.")):
+        return "USD"
+    try:
+        resp = requests.get(f"https://ipapi.co/{ip}/json/", timeout=4)
+        payload = resp.json()
+        code = (payload.get("currency") or "").upper()
+        if code in CURRENCIES:
+            return code
+    except Exception:
+        pass
+    return "USD"
+
+
+def get_display_currency():
+    """Session-cached display currency: explicit user choice wins, otherwise the
+    IP-detected currency (looked up once per session), otherwise USD."""
+    override = session.get("currency_override")
+    if override in CURRENCIES:
+        return override
+    if "detected_currency" in session:
+        return session["detected_currency"]
+    code = detect_currency_from_ip(get_client_ip())
+    session["detected_currency"] = code
+    return code
+
+
+def format_money(usd_amount, currency=None, rates=None):
+    currency = currency or get_display_currency()
+    rates = rates if rates is not None else get_fx_rates()
+    rate = rates.get(currency, 1.0)
+    symbol = CURRENCIES.get(currency, {}).get("symbol", "$")
+    converted = float(usd_amount or 0) * rate
+    if converted >= 1000:
+        return f"{symbol}{converted:,.0f}"
+    return f"{symbol}{converted:,.2f}"
 
 # ---------------------------------------------------------------------------
 # Database helpers
@@ -48,6 +161,7 @@ CREATE TABLE IF NOT EXISTS categories (
     slug TEXT UNIQUE NOT NULL,
     section TEXT NOT NULL,           -- 'gaming_accounts' | 'game_boost' | 'social_media' | 'websites' | 'other'
     icon TEXT DEFAULT '🎮',
+    icon_image TEXT DEFAULT '',      -- uploaded logo image path, takes priority over emoji icon if set
     sort_order INTEGER DEFAULT 0
 );
 
@@ -86,6 +200,10 @@ CREATE TABLE IF NOT EXISTS users (
     full_name TEXT DEFAULT '',
     country TEXT DEFAULT '',
     wallet_balance REAL NOT NULL DEFAULT 0,
+    paystack_customer_code TEXT DEFAULT '',
+    dva_account_number TEXT DEFAULT '',
+    dva_bank_name TEXT DEFAULT '',
+    dva_account_name TEXT DEFAULT '',
     created_at TEXT DEFAULT (datetime('now'))
 );
 
@@ -112,7 +230,93 @@ CREATE TABLE IF NOT EXISTS order_credentials (
     extra_info TEXT DEFAULT '',
     delivered_at TEXT DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS games (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    slug TEXT UNIQUE NOT NULL,
+    image_url TEXT DEFAULT '',
+    sort_order INTEGER DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS listing_images (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    listing_id INTEGER NOT NULL REFERENCES listings(id) ON DELETE CASCADE,
+    image_url TEXT NOT NULL,
+    sort_order INTEGER DEFAULT 0
+);
 """
+
+
+def migrate_schema(db):
+    """Idempotent, safe-to-run-every-startup migrations for installs created before
+    the games/screenshots feature existed."""
+    try:
+        db.execute("ALTER TABLE listings ADD COLUMN game_id INTEGER REFERENCES games(id)")
+    except sqlite3.OperationalError:
+        pass  # column already exists
+    db.commit()
+
+
+def seed_games_if_empty(db):
+    count = db.execute("SELECT COUNT(*) c FROM games").fetchone()["c"]
+    if count > 0:
+        return
+    for i, game in enumerate(GAMES_50):
+        db.execute(
+            "INSERT INTO games (name, slug, sort_order) VALUES (?,?,?)",
+            (game, slugify(game), i),
+        )
+    db.commit()
+
+
+def migrate_legacy_per_game_categories(db):
+    """Older installs seeded one category PER GAME (e.g. 'PUBG Mobile Accounts').
+    Newer installs use a single dropdown of games (the `games` table) attached to
+    a listing instead. This folds any leftover per-game categories into that
+    dropdown so nothing is lost, then removes the now-redundant categories."""
+    fallback_gaming = db.execute(
+        "SELECT id FROM categories WHERE section='gaming_accounts' AND name=? ",
+        (GAMING_ACCOUNT_CATEGORIES[0],),
+    ).fetchone()
+    fallback_boost = db.execute(
+        "SELECT id FROM categories WHERE section='game_boost' AND name=?",
+        (BOOST_CATEGORIES[0],),
+    ).fetchone()
+
+    for game in GAMES_50:
+        game_row = db.execute("SELECT id FROM games WHERE name=?", (game,)).fetchone()
+        if not game_row:
+            continue
+        game_id = game_row["id"]
+
+        legacy_gaming = db.execute(
+            "SELECT id FROM categories WHERE section='gaming_accounts' AND name=?",
+            (f"{game} Accounts",),
+        ).fetchone()
+        if legacy_gaming and fallback_gaming:
+            db.execute(
+                "UPDATE listings SET category_id=?, game_id=? WHERE category_id=?",
+                (fallback_gaming["id"], game_id, legacy_gaming["id"]),
+            )
+            db.execute("DELETE FROM categories WHERE id=?", (legacy_gaming["id"],))
+
+        legacy_boost = db.execute(
+            "SELECT id FROM categories WHERE section='game_boost' AND name=?",
+            (f"{game} Boost & Credits",),
+        ).fetchone()
+        if legacy_boost and fallback_boost:
+            db.execute(
+                "UPDATE listings SET category_id=?, game_id=? WHERE category_id=?",
+                (fallback_boost["id"], game_id, legacy_boost["id"]),
+            )
+            db.execute("DELETE FROM categories WHERE id=?", (legacy_boost["id"],))
+    db.commit()
 
 
 def init_db():
@@ -120,7 +324,10 @@ def init_db():
     db.row_factory = sqlite3.Row
     db.executescript(SCHEMA)
     db.commit()
+    migrate_schema(db)
     seed_if_empty(db)
+    seed_games_if_empty(db)
+    migrate_legacy_per_game_categories(db)
     db.close()
 
 
@@ -184,6 +391,57 @@ def slugify(text):
     return "".join(c.lower() if c.isalnum() else "-" for c in text).strip("-").replace("---", "-").replace("--", "-")
 
 
+def allowed_image(filename):
+    return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_IMAGE_EXT
+
+
+def save_uploaded_image(file_storage, subfolder):
+    """Save an uploaded image under static/uploads/<subfolder>/ and return its public URL path,
+    or None if no valid file was provided."""
+    if not file_storage or not file_storage.filename:
+        return None
+    if not allowed_image(file_storage.filename):
+        return None
+    ext = file_storage.filename.rsplit(".", 1)[1].lower()
+    fname = f"{secrets.token_hex(8)}.{ext}"
+    folder = os.path.join(UPLOAD_DIR, subfolder)
+    os.makedirs(folder, exist_ok=True)
+    path = os.path.join(folder, fname)
+    file_storage.save(path)
+    return f"/static/uploads/{subfolder}/{fname}"
+
+
+def get_gallery_map(listing_ids):
+    """Returns {listing_id: [image_url, ...]} for screenshot galleries."""
+    if not listing_ids:
+        return {}
+    db = get_db()
+    placeholders = ",".join("?" for _ in listing_ids)
+    rows = db.execute(
+        f"SELECT * FROM listing_images WHERE listing_id IN ({placeholders}) ORDER BY sort_order, id",
+        listing_ids,
+    ).fetchall()
+    out = {}
+    for r in rows:
+        out.setdefault(r["listing_id"], []).append(r["image_url"])
+    return out
+
+
+def get_setting(key, default=""):
+    db = get_db()
+    row = db.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
+    return row["value"] if row else default
+
+
+def set_setting(key, value):
+    db = get_db()
+    db.execute(
+        "INSERT INTO settings (key, value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        (key, value),
+    )
+    db.commit()
+
+
 def seed_if_empty(db):
     count = db.execute("SELECT COUNT(*) c FROM categories").fetchone()["c"]
     if count > 0:
@@ -200,18 +458,12 @@ def seed_if_empty(db):
             (name, slug, section, icon, order),
         )
 
-    # Gaming accounts categories
+    # Gaming accounts categories (games are selected via a dropdown on the
+    # listing itself now — see the `games` table — not as separate categories)
     for c in GAMING_ACCOUNT_CATEGORIES:
         add_cat(c, "gaming_accounts", "🕹️")
 
-    # Per-game gaming account categories (50 games)
-    for game in GAMES_50:
-        add_cat(f"{game} Accounts", "gaming_accounts", "🎮")
-
-    # Game boosting / leveling / credits (50 games)
-    for game in GAMES_50:
-        add_cat(f"{game} Boost & Credits", "game_boost", "⚡")
-
+    # Game boosting / leveling / credits categories
     for c in BOOST_CATEGORIES:
         add_cat(c, "game_boost", "🚀")
 
@@ -280,7 +532,26 @@ def current_user():
 
 @app.context_processor
 def inject_user():
-    return {"current_user": current_user()}
+    currency = get_display_currency()
+    rates = get_fx_rates()
+    return {
+        "current_user": current_user(),
+        "site_logo": get_setting("site_logo", ""),
+        "display_currency": currency,
+        "currency_options": CURRENCIES,
+        "currency_symbol": CURRENCIES.get(currency, {}).get("symbol", "$"),
+        "fx_rate": rates.get(currency, 1.0),
+        "fmt_price": lambda usd: format_money(usd, currency=currency, rates=rates),
+    }
+
+
+@app.route("/set-currency", methods=["POST"])
+def set_currency():
+    code = request.form.get("currency", "").upper()
+    if code in CURRENCIES:
+        session["currency_override"] = code
+    dest = request.form.get("next") or request.referrer or url_for("index")
+    return redirect(dest)
 
 
 # ---------------------------------------------------------------------------
@@ -298,10 +569,13 @@ def index():
         total = db.execute("SELECT COUNT(*) c FROM categories WHERE section=?", (section,)).fetchone()["c"]
         sections.append({"key": section, "label": label, "categories": cats, "total": total})
     featured = db.execute(
-        "SELECT l.*, c.name as cat_name, c.section as section FROM listings l "
-        "JOIN categories c ON c.id = l.category_id WHERE l.is_active=1 ORDER BY l.created_at DESC LIMIT 8"
+        "SELECT l.*, c.name as cat_name, c.section as section, g.name as game_name, g.image_url as game_image "
+        "FROM listings l JOIN categories c ON c.id = l.category_id "
+        "LEFT JOIN games g ON g.id = l.game_id "
+        "WHERE l.is_active=1 ORDER BY l.created_at DESC LIMIT 8"
     ).fetchall()
-    return render_template("index.html", sections=sections, featured=featured, section_labels=SECTION_LABELS)
+    games = db.execute("SELECT * FROM games ORDER BY sort_order LIMIT 16").fetchall()
+    return render_template("index.html", sections=sections, featured=featured, section_labels=SECTION_LABELS, games=games)
 
 
 @app.route("/section/<section>")
@@ -326,10 +600,60 @@ def category_view(cat_id):
     cat = db.execute("SELECT * FROM categories WHERE id=?", (cat_id,)).fetchone()
     if not cat:
         return "Not found", 404
-    listings = db.execute(
-        "SELECT * FROM listings WHERE category_id=? AND is_active=1 ORDER BY price ASC", (cat_id,)
+
+    game_id = request.args.get("game_id", "").strip()
+    is_game_section = cat["section"] in ("gaming_accounts", "game_boost")
+
+    base_query = (
+        "SELECT l.*, g.name as game_name, g.image_url as game_image FROM listings l "
+        "LEFT JOIN games g ON g.id = l.game_id WHERE l.category_id=? AND l.is_active=1"
+    )
+    params = [cat_id]
+    if is_game_section and game_id:
+        base_query += " AND l.game_id=?"
+        params.append(game_id)
+    listings = db.execute(base_query + " ORDER BY l.price ASC", params).fetchall()
+
+    gallery_map = get_gallery_map([l["id"] for l in listings])
+
+    games_in_category = []
+    if is_game_section:
+        games_in_category = db.execute(
+            "SELECT DISTINCT g.id, g.name, g.image_url FROM listings l "
+            "JOIN games g ON g.id = l.game_id WHERE l.category_id=? AND l.is_active=1 ORDER BY g.name",
+            (cat_id,),
+        ).fetchall()
+
+    return render_template(
+        "category.html", category=cat, listings=listings, label=SECTION_LABELS.get(cat["section"], ""),
+        gallery_map=gallery_map, games_in_category=games_in_category, selected_game=game_id,
+    )
+
+
+@app.route("/games")
+def games_hub():
+    db = get_db()
+    games = db.execute(
+        "SELECT g.*, (SELECT COUNT(*) FROM listings l WHERE l.game_id=g.id AND l.is_active=1) as listing_count "
+        "FROM games g ORDER BY g.sort_order"
     ).fetchall()
-    return render_template("category.html", category=cat, listings=listings, label=SECTION_LABELS.get(cat["section"], ""))
+    return render_template("games_hub.html", games=games)
+
+
+@app.route("/games/<int:game_id>")
+def game_view(game_id):
+    db = get_db()
+    game = db.execute("SELECT * FROM games WHERE id=?", (game_id,)).fetchone()
+    if not game:
+        return "Not found", 404
+    listings = db.execute(
+        "SELECT l.*, c.name as cat_name, c.section as section FROM listings l "
+        "JOIN categories c ON c.id = l.category_id "
+        "WHERE l.game_id=? AND l.is_active=1 ORDER BY c.section, l.price ASC",
+        (game_id,),
+    ).fetchall()
+    gallery_map = get_gallery_map([l["id"] for l in listings])
+    return render_template("game_view.html", game=game, listings=listings, gallery_map=gallery_map, section_labels=SECTION_LABELS)
 
 
 @app.route("/search")
@@ -339,10 +663,11 @@ def search():
     results = []
     if q:
         results = db.execute(
-            "SELECT l.*, c.name as cat_name, c.section as section FROM listings l "
-            "JOIN categories c ON c.id=l.category_id "
-            "WHERE l.is_active=1 AND (l.title LIKE ? OR c.name LIKE ?) LIMIT 60",
-            (f"%{q}%", f"%{q}%"),
+            "SELECT l.*, c.name as cat_name, c.section as section, g.name as game_name "
+            "FROM listings l JOIN categories c ON c.id=l.category_id "
+            "LEFT JOIN games g ON g.id = l.game_id "
+            "WHERE l.is_active=1 AND (l.title LIKE ? OR c.name LIKE ? OR g.name LIKE ?) LIMIT 60",
+            (f"%{q}%", f"%{q}%", f"%{q}%"),
         ).fetchall()
     return render_template("search.html", q=q, results=results)
 
@@ -424,6 +749,76 @@ def order_status(order_ref):
 # User auth
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Paystack Dedicated Virtual Account (DVA) helpers
+# ---------------------------------------------------------------------------
+
+def create_paystack_customer_and_dva(user_id, email, full_name):
+    """Create a Paystack customer + a permanent dedicated virtual account for them.
+    Returns dict with account_number/bank_name/account_name on success, or None on failure.
+    Requires PAYSTACK_SECRET_KEY and your Paystack account to be approved for
+    Dedicated Virtual Accounts (Settings -> Preferences on their dashboard)."""
+    if not PAYSTACK_SECRET_KEY:
+        return None
+
+    name_parts = (full_name or "").strip().split(" ", 1)
+    first_name = name_parts[0] if name_parts and name_parts[0] else "IPNET"
+    last_name = name_parts[1] if len(name_parts) > 1 else "User"
+
+    try:
+        cust_resp = requests.post(
+            "https://api.paystack.co/customer",
+            headers={"Authorization": f"Bearer {PAYSTACK_SECRET_KEY}"},
+            json={"email": email, "first_name": first_name, "last_name": last_name},
+            timeout=15,
+        )
+        cust_payload = cust_resp.json()
+        if not cust_payload.get("status"):
+            return None
+        customer_code = cust_payload["data"]["customer_code"]
+
+        dva_resp = requests.post(
+            "https://api.paystack.co/dedicated_account",
+            headers={"Authorization": f"Bearer {PAYSTACK_SECRET_KEY}"},
+            json={"customer": customer_code, "preferred_bank": "wema-bank"},
+            timeout=20,
+        )
+        dva_payload = dva_resp.json()
+        if not dva_payload.get("status"):
+            return {"customer_code": customer_code, "account_number": "", "bank_name": "", "account_name": ""}
+
+        d = dva_payload["data"]
+        return {
+            "customer_code": customer_code,
+            "account_number": d.get("account_number", ""),
+            "bank_name": d.get("bank", {}).get("name", ""),
+            "account_name": d.get("account_name", ""),
+        }
+    except requests.RequestException:
+        return None
+
+
+def ensure_user_has_dva(user):
+    """Lazily create a DVA for a user who doesn't have one yet (e.g. signed up before
+    Paystack keys were configured, or creation failed at signup time). Safe to call often."""
+    if user["dva_account_number"] or not PAYSTACK_SECRET_KEY:
+        return user
+    result = create_paystack_customer_and_dva(user["id"], user["email"], user["full_name"])
+    if result and result.get("account_number"):
+        db = get_db()
+        db.execute(
+            "UPDATE users SET paystack_customer_code=?, dva_account_number=?, dva_bank_name=?, dva_account_name=? WHERE id=?",
+            (result["customer_code"], result["account_number"], result["bank_name"], result["account_name"], user["id"]),
+        )
+        db.commit()
+        user = db.execute("SELECT * FROM users WHERE id=?", (user["id"],)).fetchone()
+    return user
+
+
+# ---------------------------------------------------------------------------
+# User auth
+# ---------------------------------------------------------------------------
+
 @app.route("/register", methods=["GET", "POST"])
 def register():
     if request.method == "POST":
@@ -445,7 +840,20 @@ def register():
             (email, pw_hash, full_name, country),
         )
         db.commit()
-        session["user_id"] = cur.lastrowid
+        user_id = cur.lastrowid
+        session["user_id"] = user_id
+
+        # Try to provision a dedicated virtual account right away; harmless if it fails
+        # (dashboard will retry next visit via ensure_user_has_dva).
+        if PAYSTACK_SECRET_KEY:
+            result = create_paystack_customer_and_dva(user_id, email, full_name)
+            if result and result.get("account_number"):
+                db.execute(
+                    "UPDATE users SET paystack_customer_code=?, dva_account_number=?, dva_bank_name=?, dva_account_name=? WHERE id=?",
+                    (result["customer_code"], result["account_number"], result["bank_name"], result["account_name"], user_id),
+                )
+                db.commit()
+
         flash("Welcome to IPNET!", "success")
         return redirect(url_for("dashboard"))
     return render_template("register.html")
@@ -481,6 +889,8 @@ def logout():
 def dashboard():
     db = get_db()
     user = current_user()
+    user = ensure_user_has_dva(user)
+
     orders = db.execute(
         "SELECT * FROM orders WHERE user_id=? ORDER BY created_at DESC", (user["id"],)
     ).fetchall()
@@ -497,134 +907,64 @@ def dashboard():
 
     return render_template(
         "dashboard.html", user=user, orders_with_creds=orders_with_creds, transactions=tx,
-        ngn_rate=NGN_PER_USD, paystack_public_key=PAYSTACK_PUBLIC_KEY,
+        ngn_rate=NGN_PER_USD, paystack_configured=bool(PAYSTACK_SECRET_KEY),
     )
-
-
-@app.route("/wallet/fund/init", methods=["POST"])
-@login_required
-def wallet_fund_init():
-    """Initialize a Paystack transaction for wallet funding (amount in USD, converted to NGN)."""
-    user = current_user()
-    data = request.get_json(force=True)
-    try:
-        usd_amount = float(data.get("amount_usd", 0))
-    except (TypeError, ValueError):
-        return jsonify({"error": "Invalid amount"}), 400
-    if usd_amount < 1:
-        return jsonify({"error": "Minimum funding amount is $1"}), 400
-
-    ngn_amount = round(usd_amount * NGN_PER_USD, 2)
-    tx_ref = "IPNW-" + secrets.token_hex(8).upper()
-
-    db = get_db()
-    db.execute(
-        "INSERT INTO wallet_transactions (user_id, tx_ref, kind, amount, currency, status, provider) "
-        "VALUES (?,?,?,?,?,?,?)",
-        (user["id"], tx_ref, "funding", usd_amount, "USD", "pending", "paystack"),
-    )
-    db.commit()
-
-    if not PAYSTACK_SECRET_KEY:
-        return jsonify({"error": "Payments are not configured yet. Set PAYSTACK_SECRET_KEY on the server."}), 503
-
-    try:
-        resp = requests.post(
-            "https://api.paystack.co/transaction/initialize",
-            headers={"Authorization": f"Bearer {PAYSTACK_SECRET_KEY}"},
-            json={
-                "email": user["email"],
-                "amount": int(round(ngn_amount * 100)),  # kobo
-                "reference": tx_ref,
-                "callback_url": url_for("wallet_fund_callback", _external=True),
-                "metadata": {"user_id": user["id"], "usd_amount": usd_amount},
-            },
-            timeout=15,
-        )
-        payload = resp.json()
-    except requests.RequestException as e:
-        return jsonify({"error": f"Could not reach Paystack: {e}"}), 502
-
-    if not payload.get("status"):
-        return jsonify({"error": payload.get("message", "Could not start payment")}), 502
-
-    return jsonify({
-        "authorization_url": payload["data"]["authorization_url"],
-        "tx_ref": tx_ref,
-    })
-
-
-def _credit_wallet_if_needed(tx_ref):
-    """Verify a Paystack transaction and credit the wallet exactly once. Returns (ok, message)."""
-    db = get_db()
-    tx = db.execute("SELECT * FROM wallet_transactions WHERE tx_ref=?", (tx_ref,)).fetchone()
-    if not tx:
-        return False, "Unknown transaction reference"
-    if tx["status"] == "success":
-        return True, "Already credited"
-
-    if not PAYSTACK_SECRET_KEY:
-        return False, "Payments not configured"
-
-    try:
-        resp = requests.get(
-            f"https://api.paystack.co/transaction/verify/{tx_ref}",
-            headers={"Authorization": f"Bearer {PAYSTACK_SECRET_KEY}"},
-            timeout=15,
-        )
-        payload = resp.json()
-    except requests.RequestException as e:
-        return False, f"Verification request failed: {e}"
-
-    data = payload.get("data", {})
-    if payload.get("status") and data.get("status") == "success":
-        db.execute(
-            "UPDATE wallet_transactions SET status='success', provider_ref=? WHERE tx_ref=?",
-            (str(data.get("id", "")), tx_ref),
-        )
-        db.execute(
-            "UPDATE users SET wallet_balance = wallet_balance + ? WHERE id=?",
-            (tx["amount"], tx["user_id"]),
-        )
-        db.commit()
-        return True, "Wallet credited"
-    else:
-        db.execute("UPDATE wallet_transactions SET status='failed' WHERE tx_ref=?", (tx_ref,))
-        db.commit()
-        return False, "Payment not successful"
-
-
-@app.route("/wallet/fund/callback")
-def wallet_fund_callback():
-    """User is redirected here by Paystack after paying. We verify as a fallback to the webhook."""
-    tx_ref = request.args.get("reference") or request.args.get("trxref")
-    if tx_ref:
-        ok, message = _credit_wallet_if_needed(tx_ref)
-        flash(message if ok else f"Payment issue: {message}", "success" if ok else "error")
-    return redirect(url_for("dashboard"))
 
 
 @app.route("/wallet/webhook", methods=["POST"])
 def wallet_webhook():
-    """Paystack server-to-server webhook — this is what actually auto-credits reliably,
-    even if the user closes their browser before the callback redirect fires.
+    """Paystack server-to-server webhook. Handles two kinds of charge.success events:
+    1. A transfer straight into a user's Dedicated Virtual Account (the normal flow
+       here) — matched by the receiving account number, credited in USD-equivalent.
+    2. A one-off hosted-checkout transaction (if you ever re-enable that flow) —
+       matched by tx_ref against wallet_transactions.
     Configure this URL in the Paystack dashboard: Settings -> API Keys & Webhooks."""
     import hashlib
     import hmac
 
+    raw_body = request.get_data()
     if PAYSTACK_SECRET_KEY:
         signature = request.headers.get("x-paystack-signature", "")
-        computed = hmac.new(
-            PAYSTACK_SECRET_KEY.encode("utf-8"), request.get_data(), hashlib.sha512
-        ).hexdigest()
+        computed = hmac.new(PAYSTACK_SECRET_KEY.encode("utf-8"), raw_body, hashlib.sha512).hexdigest()
         if not hmac.compare_digest(signature, computed):
             return jsonify({"error": "invalid signature"}), 401
 
     event = request.get_json(silent=True) or {}
-    if event.get("event") == "charge.success":
-        tx_ref = event.get("data", {}).get("reference")
-        if tx_ref:
-            _credit_wallet_if_needed(tx_ref)
+    if event.get("event") != "charge.success":
+        return jsonify({"received": True})
+
+    data = event.get("data", {})
+    db = get_db()
+
+    # Case 1: inbound transfer to a Dedicated Virtual Account
+    authorization = data.get("authorization", {}) or {}
+    receiving_account = authorization.get("receiver_bank_account_number") or data.get("metadata", {}).get("receiver_account_number")
+    customer_email = (data.get("customer", {}) or {}).get("email", "")
+    paystack_ref = str(data.get("id", data.get("reference", "")))
+    ngn_amount = (data.get("amount", 0) or 0) / 100.0  # kobo -> naira
+
+    # Idempotency guard: skip if we've already recorded this Paystack transaction id
+    already = db.execute("SELECT id FROM wallet_transactions WHERE provider_ref=?", (paystack_ref,)).fetchone()
+    if already:
+        return jsonify({"received": True, "note": "already processed"})
+
+    user = None
+    if receiving_account:
+        user = db.execute("SELECT * FROM users WHERE dva_account_number=?", (receiving_account,)).fetchone()
+    if not user and customer_email:
+        user = db.execute("SELECT * FROM users WHERE email=?", (customer_email.lower(),)).fetchone()
+
+    if user and ngn_amount > 0:
+        usd_amount = round(ngn_amount / NGN_PER_USD, 2)
+        tx_ref = "IPNW-" + secrets.token_hex(8).upper()
+        db.execute(
+            "INSERT INTO wallet_transactions (user_id, tx_ref, kind, amount, currency, status, provider, provider_ref, note) "
+            "VALUES (?,?,?,?,?,?,?,?,?)",
+            (user["id"], tx_ref, "funding", usd_amount, "NGN", "success", "paystack", paystack_ref,
+             f"Bank transfer received: ₦{ngn_amount:,.2f}"),
+        )
+        db.execute("UPDATE users SET wallet_balance = wallet_balance + ? WHERE id=?", (usd_amount, user["id"]))
+        db.commit()
 
     return jsonify({"received": True})
 
@@ -663,7 +1003,19 @@ def admin_dashboard():
         "pending_orders": db.execute("SELECT COUNT(*) c FROM orders WHERE status='pending'").fetchone()["c"],
     }
     recent_orders = db.execute("SELECT * FROM orders ORDER BY created_at DESC LIMIT 10").fetchall()
-    return render_template("admin_dashboard.html", stats=stats, recent_orders=recent_orders)
+    return render_template("admin_dashboard.html", stats=stats, recent_orders=recent_orders, current_logo=get_setting("site_logo", ""))
+
+
+@app.route("/admin/site-logo", methods=["POST"])
+@admin_required
+def admin_update_site_logo():
+    logo_path = save_uploaded_image(request.files.get("logo_file"), "site")
+    if logo_path:
+        set_setting("site_logo", logo_path)
+        flash("Site logo updated", "success")
+    else:
+        flash("Please choose a valid image file (png, jpg, jpeg, gif, webp)", "error")
+    return redirect(url_for("admin_dashboard"))
 
 
 @app.route("/admin/categories")
@@ -685,11 +1037,29 @@ def admin_add_category():
     name = request.form.get("name", "").strip()
     section = request.form.get("section", "other")
     icon = request.form.get("icon", "🎮").strip() or "🎮"
+    logo_path = save_uploaded_image(request.files.get("logo_file"), "categories")
     if name:
         slug = slugify(f"{section}-{name}-{secrets.token_hex(2)}")
-        db.execute("INSERT INTO categories (name, slug, section, icon) VALUES (?,?,?,?)", (name, slug, section, icon))
+        db.execute(
+            "INSERT INTO categories (name, slug, section, icon, icon_image) VALUES (?,?,?,?,?)",
+            (name, slug, section, icon, logo_path or ""),
+        )
         db.commit()
         flash(f"Category '{name}' added", "success")
+    return redirect(url_for("admin_categories"))
+
+
+@app.route("/admin/categories/<int:cat_id>/logo", methods=["POST"])
+@admin_required
+def admin_update_category_logo(cat_id):
+    db = get_db()
+    logo_path = save_uploaded_image(request.files.get("logo_file"), "categories")
+    if logo_path:
+        db.execute("UPDATE categories SET icon_image=? WHERE id=?", (logo_path, cat_id))
+        db.commit()
+        flash("Logo updated", "success")
+    else:
+        flash("Please choose a valid image file (png, jpg, jpeg, gif, webp)", "error")
     return redirect(url_for("admin_categories"))
 
 
@@ -708,17 +1078,28 @@ def admin_delete_category(cat_id):
 def admin_listings():
     db = get_db()
     cat_id = request.args.get("category_id")
+    base = (
+        "SELECT l.*, c.name as cat_name, c.section as section, g.name as game_name "
+        "FROM listings l JOIN categories c ON c.id=l.category_id LEFT JOIN games g ON g.id=l.game_id "
+    )
     if cat_id:
-        listings = db.execute(
-            "SELECT l.*, c.name as cat_name FROM listings l JOIN categories c ON c.id=l.category_id "
-            "WHERE l.category_id=? ORDER BY l.id DESC", (cat_id,)
-        ).fetchall()
+        listings = db.execute(base + "WHERE l.category_id=? ORDER BY l.id DESC", (cat_id,)).fetchall()
     else:
-        listings = db.execute(
-            "SELECT l.*, c.name as cat_name FROM listings l JOIN categories c ON c.id=l.category_id ORDER BY l.id DESC LIMIT 200"
-        ).fetchall()
+        listings = db.execute(base + "ORDER BY l.id DESC LIMIT 200").fetchall()
     categories = db.execute("SELECT * FROM categories ORDER BY section, sort_order").fetchall()
-    return render_template("admin_listings.html", listings=listings, categories=categories, selected_cat=cat_id)
+    games = db.execute("SELECT * FROM games ORDER BY name").fetchall()
+    gallery_counts = {}
+    if listings:
+        placeholders = ",".join("?" for _ in listings)
+        for row in db.execute(
+            f"SELECT listing_id, COUNT(*) c FROM listing_images WHERE listing_id IN ({placeholders}) GROUP BY listing_id",
+            [l["id"] for l in listings],
+        ).fetchall():
+            gallery_counts[row["listing_id"]] = row["c"]
+    return render_template(
+        "admin_listings.html", listings=listings, categories=categories, selected_cat=cat_id,
+        games=games, gallery_counts=gallery_counts, section_labels=SECTION_LABELS,
+    )
 
 
 @app.route("/admin/listings/add", methods=["POST"])
@@ -731,6 +1112,9 @@ def admin_add_listing():
     price = request.form.get("price", "0").strip()
     stock = request.form.get("stock", "999").strip()
     image_url = request.form.get("image_url", "").strip()
+    game_id = request.form.get("game_id") or None
+    uploaded_path = save_uploaded_image(request.files.get("image_file"), "listings")
+    final_image = uploaded_path or image_url
     try:
         price_f = float(price)
         stock_i = int(stock)
@@ -739,10 +1123,18 @@ def admin_add_listing():
         return redirect(url_for("admin_listings"))
 
     if title and category_id:
-        db.execute(
-            "INSERT INTO listings (category_id, title, description, price, stock, image_url) VALUES (?,?,?,?,?,?)",
-            (category_id, title, description, price_f, stock_i, image_url),
+        cur = db.execute(
+            "INSERT INTO listings (category_id, title, description, price, stock, image_url, game_id) VALUES (?,?,?,?,?,?,?)",
+            (category_id, title, description, price_f, stock_i, final_image, game_id),
         )
+        listing_id = cur.lastrowid
+        for i, f in enumerate(request.files.getlist("gallery_files")):
+            path = save_uploaded_image(f, "listings")
+            if path:
+                db.execute(
+                    "INSERT INTO listing_images (listing_id, image_url, sort_order) VALUES (?,?,?)",
+                    (listing_id, path, i),
+                )
         db.commit()
         flash(f"Listing '{title}' added", "success")
     return redirect(url_for("admin_listings", category_id=category_id))
@@ -758,6 +1150,8 @@ def admin_edit_listing(listing_id):
     stock = request.form.get("stock", "0").strip()
     is_active = 1 if request.form.get("is_active") == "on" else 0
     image_url = request.form.get("image_url", "").strip()
+    game_id = request.form.get("game_id") or None
+    uploaded_path = save_uploaded_image(request.files.get("image_file"), "listings")
     try:
         price_f = float(price)
         stock_i = int(stock)
@@ -765,10 +1159,18 @@ def admin_edit_listing(listing_id):
         flash("Invalid price or stock", "error")
         return redirect(url_for("admin_listings"))
 
+    final_image = uploaded_path or image_url
     db.execute(
-        "UPDATE listings SET title=?, description=?, price=?, stock=?, is_active=?, image_url=? WHERE id=?",
-        (title, description, price_f, stock_i, is_active, image_url, listing_id),
+        "UPDATE listings SET title=?, description=?, price=?, stock=?, is_active=?, image_url=?, game_id=? WHERE id=?",
+        (title, description, price_f, stock_i, is_active, final_image, game_id, listing_id),
     )
+    for i, f in enumerate(request.files.getlist("gallery_files")):
+        path = save_uploaded_image(f, "listings")
+        if path:
+            db.execute(
+                "INSERT INTO listing_images (listing_id, image_url, sort_order) VALUES (?,?,?)",
+                (listing_id, path, i),
+            )
     db.commit()
     flash("Listing updated", "success")
     return redirect(url_for("admin_listings"))
@@ -782,6 +1184,102 @@ def admin_delete_listing(listing_id):
     db.commit()
     flash("Listing deleted", "success")
     return redirect(url_for("admin_listings"))
+
+
+@app.route("/admin/listings/<int:listing_id>/images", methods=["GET"])
+@admin_required
+def admin_listing_images(listing_id):
+    db = get_db()
+    listing = db.execute("SELECT * FROM listings WHERE id=?", (listing_id,)).fetchone()
+    if not listing:
+        return "Not found", 404
+    images = db.execute(
+        "SELECT * FROM listing_images WHERE listing_id=? ORDER BY sort_order, id", (listing_id,)
+    ).fetchall()
+    return render_template("admin_listing_images.html", listing=listing, images=images)
+
+
+@app.route("/admin/listings/<int:listing_id>/images/add", methods=["POST"])
+@admin_required
+def admin_add_listing_images(listing_id):
+    db = get_db()
+    files = request.files.getlist("gallery_files")
+    added = 0
+    for f in files:
+        path = save_uploaded_image(f, "listings")
+        if path:
+            db.execute(
+                "INSERT INTO listing_images (listing_id, image_url) VALUES (?,?)", (listing_id, path)
+            )
+            added += 1
+    db.commit()
+    flash(f"Added {added} screenshot(s)" if added else "Choose at least one valid image", "success" if added else "error")
+    return redirect(url_for("admin_listing_images", listing_id=listing_id))
+
+
+@app.route("/admin/listings/images/<int:image_id>/delete", methods=["POST"])
+@admin_required
+def admin_delete_listing_image(image_id):
+    db = get_db()
+    img = db.execute("SELECT * FROM listing_images WHERE id=?", (image_id,)).fetchone()
+    db.execute("DELETE FROM listing_images WHERE id=?", (image_id,))
+    db.commit()
+    if img:
+        return redirect(url_for("admin_listing_images", listing_id=img["listing_id"]))
+    return redirect(url_for("admin_listings"))
+
+
+@app.route("/admin/games")
+@admin_required
+def admin_games():
+    db = get_db()
+    games = db.execute(
+        "SELECT g.*, (SELECT COUNT(*) FROM listings l WHERE l.game_id=g.id) as listing_count "
+        "FROM games g ORDER BY g.sort_order"
+    ).fetchall()
+    return render_template("admin_games.html", games=games)
+
+
+@app.route("/admin/games/add", methods=["POST"])
+@admin_required
+def admin_add_game():
+    db = get_db()
+    name = request.form.get("name", "").strip()
+    logo_path = save_uploaded_image(request.files.get("image_file"), "games")
+    if name:
+        max_order = db.execute("SELECT COALESCE(MAX(sort_order),0) m FROM games").fetchone()["m"]
+        db.execute(
+            "INSERT INTO games (name, slug, image_url, sort_order) VALUES (?,?,?,?)",
+            (name, slugify(f"{name}-{secrets.token_hex(2)}"), logo_path or "", max_order + 1),
+        )
+        db.commit()
+        flash(f"Game '{name}' added", "success")
+    return redirect(url_for("admin_games"))
+
+
+@app.route("/admin/games/<int:game_id>/image", methods=["POST"])
+@admin_required
+def admin_update_game_image(game_id):
+    db = get_db()
+    logo_path = save_uploaded_image(request.files.get("image_file"), "games")
+    if logo_path:
+        db.execute("UPDATE games SET image_url=? WHERE id=?", (logo_path, game_id))
+        db.commit()
+        flash("Game image updated", "success")
+    else:
+        flash("Please choose a valid image file", "error")
+    return redirect(url_for("admin_games"))
+
+
+@app.route("/admin/games/<int:game_id>/delete", methods=["POST"])
+@admin_required
+def admin_delete_game(game_id):
+    db = get_db()
+    db.execute("UPDATE listings SET game_id=NULL WHERE game_id=?", (game_id,))
+    db.execute("DELETE FROM games WHERE id=?", (game_id,))
+    db.commit()
+    flash("Game removed", "success")
+    return redirect(url_for("admin_games"))
 
 
 @app.route("/admin/orders")
@@ -883,6 +1381,30 @@ def admin_adjust_wallet(user_id):
     db.execute("UPDATE users SET wallet_balance = wallet_balance + ? WHERE id=?", (amount, user_id))
     db.commit()
     flash(f"Wallet adjusted by ${amount:.2f}", "success")
+    return redirect(url_for("admin_users"))
+
+
+@app.route("/admin/users/<int:user_id>/retry-dva", methods=["POST"])
+@admin_required
+def admin_retry_dva(user_id):
+    db = get_db()
+    user = db.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
+    if not user:
+        flash("User not found", "error")
+        return redirect(url_for("admin_users"))
+    if not PAYSTACK_SECRET_KEY:
+        flash("Set PAYSTACK_SECRET_KEY before creating funding accounts", "error")
+        return redirect(url_for("admin_users"))
+    result = create_paystack_customer_and_dva(user["id"], user["email"], user["full_name"])
+    if result and result.get("account_number"):
+        db.execute(
+            "UPDATE users SET paystack_customer_code=?, dva_account_number=?, dva_bank_name=?, dva_account_name=? WHERE id=?",
+            (result["customer_code"], result["account_number"], result["bank_name"], result["account_name"], user_id),
+        )
+        db.commit()
+        flash(f"Funding account created: {result['account_number']} ({result['bank_name']})", "success")
+    else:
+        flash("Could not create a funding account. Check your Paystack account is approved for Dedicated Virtual Accounts.", "error")
     return redirect(url_for("admin_users"))
 
 
