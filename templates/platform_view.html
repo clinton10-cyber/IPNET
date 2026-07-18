@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}{{ platform['name'] }} - IPNET{% endblock %}
+{% block content %}
+<section class="page-header">
+  <p class="breadcrumb"><a href="{{ url_for('platforms_hub') }}">Browse by Platform</a> / {{ platform['name'] }}</p>
+  <h1>
+    {% if platform['image_url'] %}<img src="{{ platform['image_url'] }}" alt="" class="cat-header-logo">{% else %}<span class="cat-header-badge">{{ platform['name'][0]|upper }}</span>{% endif %}
+    {{ platform['name'] }}
+  </h1>
+</section>
+<div class="grid">
+  {% for item in listings %}
+  <div class="card listing-card">
+    {% if item['image_url'] %}<img src="{{ item['image_url'] }}" alt="{{ item['title'] }}" class="listing-img">{% endif %}
+    {% if gallery_map.get(item['id']) %}
+    <div class="gallery-strip">
+      {% for shot in gallery_map[item['id']] %}
+      <img src="{{ shot }}" alt="screenshot" class="gallery-thumb" onclick="window.open('{{ shot }}','_blank')">
+      {% endfor %}
+    </div>
+    {% endif %}
+    <div class="card-badge">{{ item['cat_name'] }}</div>
+    <h3>{{ item['title'] }}</h3>
+    {% if item['description'] %}<p class="muted">{{ item['description'] }}</p>{% endif %}
+    <div class="price">{{ fmt_price(item['price']) }}</div>
+    <div class="stock-tag">{{ item['stock'] }} in stock</div>
+    <button class="btn-primary add-to-cart" data-id="{{ item['id'] }}" data-title="{{ item['title'] }}" data-price="{{ item['price'] }}">Add to Cart</button>
+  </div>
+  {% else %}
+  <p>No listings for this platform yet. Check back soon, or contact us for a custom order.</p>
+  {% endfor %}
+</div>
+{% endblock %}

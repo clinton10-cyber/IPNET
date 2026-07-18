@@ -4,7 +4,7 @@
 <section class="page-header">
   <p class="breadcrumb"><a href="{{ url_for('section_view', section=category['section']) }}">{{ label }}</a> / {{ category['name'] }}</p>
   <h1>
-    {% if category['icon_image'] %}<img src="{{ category['icon_image'] }}" alt="" class="cat-header-logo">{% else %}{{ category['icon'] }}{% endif %}
+    {% if category['icon_image'] %}<img src="{{ category['icon_image'] }}" alt="" class="cat-header-logo">{% else %}<span class="cat-header-badge">{{ category['name'][0]|upper }}</span>{% endif %}
     {{ category['name'] }}
   </h1>
   {% if games_in_category %}
@@ -13,6 +13,16 @@
       <option value="">All games</option>
       {% for g in games_in_category %}
       <option value="{{ g['id'] }}" {% if selected_game and selected_game|string == g['id']|string %}selected{% endif %}>{{ g['name'] }}</option>
+      {% endfor %}
+    </select>
+  </form>
+  {% endif %}
+  {% if platforms_in_category %}
+  <form method="get" class="inline-search">
+    <select name="platform_id" onchange="this.form.submit()">
+      <option value="">All platforms</option>
+      {% for p in platforms_in_category %}
+      <option value="{{ p['id'] }}" {% if selected_platform and selected_platform|string == p['id']|string %}selected{% endif %}>{{ p['name'] }}</option>
       {% endfor %}
     </select>
   </form>
@@ -34,6 +44,12 @@
     <div class="card-badge game-badge">
       {% if item['game_image'] %}<img src="{{ item['game_image'] }}" alt="" class="game-badge-img">{% endif %}
       {{ item['game_name'] }}
+    </div>
+    {% endif %}
+    {% if item['platform_name'] %}
+    <div class="card-badge game-badge">
+      {% if item['platform_image'] %}<img src="{{ item['platform_image'] }}" alt="" class="game-badge-img">{% endif %}
+      {{ item['platform_name'] }}
     </div>
     {% endif %}
     <h3>{{ item['title'] }}</h3>

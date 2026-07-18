@@ -1,0 +1,46 @@
+{% extends "admin_base.html" %}
+{% block admin_content %}
+<h1>Platforms</h1>
+<p class="muted">These power the platform dropdown on social media listings, and the "Browse by Platform" storefront section — TikTok, Instagram, Facebook, etc, each grouping all of its accounts and services in one place.</p>
+
+<div class="card">
+  <h3>Add New Platform</h3>
+  <form method="post" action="{{ url_for('admin_add_platform') }}" enctype="multipart/form-data" class="inline-form">
+    <input type="text" name="name" placeholder="Platform name (e.g. TikTok)" required>
+    <input type="file" name="image_file" accept="image/png,image/jpeg,image/webp,image/gif" title="Platform image (optional)">
+    <button type="submit" class="btn-primary">Add Platform</button>
+  </form>
+</div>
+
+<table class="admin-table">
+  <thead><tr><th>Image</th><th>Name</th><th>Listings</th><th>Update Image</th><th></th></tr></thead>
+  <tbody>
+  {% for p in platforms %}
+    <tr>
+      <td>
+        {% if p['image_url'] %}
+          <img src="{{ p['image_url'] }}" alt="" style="height:32px;width:32px;object-fit:contain;border-radius:6px;">
+        {% else %}
+          <span class="letter-badge-sm">{{ p['name'][0]|upper }}</span>
+        {% endif %}
+      </td>
+      <td>{{ p['name'] }}</td>
+      <td>{{ p['listing_count'] }}</td>
+      <td>
+        <form method="post" action="{{ url_for('admin_update_platform_image', platform_id=p['id']) }}" enctype="multipart/form-data" class="inline-form">
+          <input type="file" name="image_file" accept="image/png,image/jpeg,image/webp,image/gif" style="max-width:160px;">
+          <button type="submit" class="btn-primary-sm">Save</button>
+        </form>
+      </td>
+      <td>
+        <form method="post" action="{{ url_for('admin_delete_platform', platform_id=p['id']) }}" onsubmit="return confirm('Remove this platform? Listings will keep their category but lose the platform tag.')">
+          <button type="submit" class="btn-danger-sm">Delete</button>
+        </form>
+      </td>
+    </tr>
+  {% else %}
+    <tr><td colspan="5">No platforms yet.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

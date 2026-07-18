@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Browse by Platform - IPNET{% endblock %}
+{% block content %}
+<section class="page-header">
+  <h1>Browse by Platform</h1>
+  <p class="muted">Pick a platform (TikTok, Instagram, Facebook...) to see every account and service listing for it in one place.</p>
+</section>
+<div class="grid cat-grid">
+  {% for p in platforms %}
+  <a class="card cat-card" href="{{ url_for('platform_view', platform_id=p['id']) }}">
+    {% if p['image_url'] %}
+      <img src="{{ p['image_url'] }}" alt="{{ p['name'] }}" class="cat-logo-img">
+    {% else %}
+      <div class="cat-icon">{{ p['name'][0]|upper }}</div>
+    {% endif %}
+    <div class="cat-name">{{ p['name'] }}</div>
+    <div class="muted">{{ p['listing_count'] }} listing{{ 's' if p['listing_count'] != 1 else '' }}</div>
+  </a>
+  {% else %}
+  <p>No platforms added yet.</p>
+  {% endfor %}
+</div>
+{% endblock %}

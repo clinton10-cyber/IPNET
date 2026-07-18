@@ -29,9 +29,9 @@
           {% endfor %}
         </select>
       </form>
-      <button id="cart-btn" class="cart-btn">🛒 Cart <span id="cart-count">0</span></button>
+      <button id="cart-btn" class="cart-btn"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>Cart <span id="cart-count">0</span></button>
       {% if current_user %}
-      <a href="{{ url_for('dashboard') }}" class="cart-btn">👤 {{ fmt_price(current_user['wallet_balance']) }}</a>
+      <a href="{{ url_for('dashboard') }}" class="cart-btn"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>{{ fmt_price(current_user['wallet_balance']) }}</a>
       {% else %}
       <a href="{{ url_for('login') }}" class="cart-btn">Login</a>
       {% endif %}
@@ -42,6 +42,7 @@
     <a href="{{ url_for('games_hub') }}">Browse by Game</a>
     <a href="{{ url_for('section_view', section='game_boost') }}">Boost & Credits</a>
     <a href="{{ url_for('section_view', section='social_media') }}">Social Media</a>
+    <a href="{{ url_for('platforms_hub') }}">Browse by Platform</a>
     <a href="{{ url_for('section_view', section='websites') }}">Websites</a>
     <a href="{{ url_for('section_view', section='other') }}">Other</a>
   </nav>

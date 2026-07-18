@@ -21,7 +21,7 @@
         {% if g['image_url'] %}
           <img src="{{ g['image_url'] }}" alt="" style="height:32px;width:32px;object-fit:contain;border-radius:6px;">
         {% else %}
-          <span style="font-size:1.4rem;">🎮</span>
+          <span class="letter-badge-sm">{{ g['name'][0]|upper }}</span>
         {% endif %}
       </td>
       <td>{{ g['name'] }}</td>

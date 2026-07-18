@@ -11,7 +11,7 @@
     {% if g['image_url'] %}
       <img src="{{ g['image_url'] }}" alt="{{ g['name'] }}" class="cat-logo-img">
     {% else %}
-      <div class="cat-icon">🎮</div>
+      <div class="cat-icon">{{ g['name'][0]|upper }}</div>
     {% endif %}
     <div class="cat-name">{{ g['name'] }}</div>
     <div class="muted">{{ g['listing_count'] }} listing{{ 's' if g['listing_count'] != 1 else '' }}</div>

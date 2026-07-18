@@ -17,9 +17,30 @@
       {% if g['image_url'] %}
         <img src="{{ g['image_url'] }}" alt="{{ g['name'] }}" class="cat-logo-img">
       {% else %}
-        <div class="cat-icon">🎮</div>
+        <div class="cat-icon">{{ g['name'][0]|upper }}</div>
       {% endif %}
       <div class="cat-name">{{ g['name'] }}</div>
+    </a>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+{% if platforms %}
+<section class="section-block">
+  <div class="section-block-header">
+    <h2>Browse by Platform</h2>
+    <a href="{{ url_for('platforms_hub') }}" class="see-all">See all platforms →</a>
+  </div>
+  <div class="grid cat-grid">
+    {% for p in platforms %}
+    <a class="card cat-card" href="{{ url_for('platform_view', platform_id=p['id']) }}">
+      {% if p['image_url'] %}
+        <img src="{{ p['image_url'] }}" alt="{{ p['name'] }}" class="cat-logo-img">
+      {% else %}
+        <div class="cat-icon">{{ p['name'][0]|upper }}</div>
+      {% endif %}
+      <div class="cat-name">{{ p['name'] }}</div>
     </a>
     {% endfor %}
   </div>
@@ -35,6 +56,7 @@
       {% if item['image_url'] %}<img src="{{ item['image_url'] }}" alt="{{ item['title'] }}" class="listing-img">{% endif %}
       <div class="card-badge">{{ section_labels.get(item['section'], '') }}</div>
       {% if item['game_name'] %}<div class="card-badge game-badge">{{ item['game_name'] }}</div>{% endif %}
+      {% if item['platform_name'] %}<div class="card-badge game-badge">{{ item['platform_name'] }}</div>{% endif %}
       <h3>{{ item['title'] }}</h3>
       <p class="muted">{{ item['cat_name'] }}</p>
       <div class="price">{{ fmt_price(item['price']) }}</div>
@@ -57,7 +79,7 @@
       {% if c['icon_image'] %}
         <img src="{{ c['icon_image'] }}" alt="{{ c['name'] }}" class="cat-logo-img">
       {% else %}
-        <div class="cat-icon">{{ c['icon'] }}</div>
+        <div class="cat-icon">{{ c['name'][0]|upper }}</div>
       {% endif %}
       <div class="cat-name">{{ c['name'] }}</div>
     </a>

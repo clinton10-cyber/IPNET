@@ -11,11 +11,10 @@
       <option value="{{ key }}">{{ label }}</option>
       {% endfor %}
     </select>
-    <input type="text" name="icon" placeholder="Emoji fallback" maxlength="4" value="🎮" style="width:90px;">
-    <input type="file" name="logo_file" accept="image/png,image/jpeg,image/webp,image/gif" title="Category image (optional, overrides emoji)">
+    <input type="file" name="logo_file" accept="image/png,image/jpeg,image/webp,image/gif" title="Category image (optional)">
     <button type="submit" class="btn-primary">Add Category</button>
   </form>
-  <p class="muted" style="margin-top:8px;">Category image is optional — if uploaded, it replaces the emoji icon on the storefront.</p>
+  <p class="muted" style="margin-top:8px;">Category image is optional — if none is uploaded, the storefront shows a plain letter badge instead.</p>
 </div>
 
 <div class="filter-tabs">
@@ -34,7 +33,7 @@
         {% if c['icon_image'] %}
           <img src="{{ c['icon_image'] }}" alt="" style="height:32px;width:32px;object-fit:contain;border-radius:6px;">
         {% else %}
-          <span style="font-size:1.4rem;">{{ c['icon'] }}</span>
+          <span class="letter-badge-sm">{{ c['name'][0]|upper }}</span>
         {% endif %}
       </td>
       <td><a href="{{ url_for('admin_listings', category_id=c['id']) }}">{{ c['name'] }}</a></td>
