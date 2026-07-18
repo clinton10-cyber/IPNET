@@ -160,7 +160,7 @@ CREATE TABLE IF NOT EXISTS categories (
     name TEXT NOT NULL,
     slug TEXT UNIQUE NOT NULL,
     section TEXT NOT NULL,           -- 'gaming_accounts' | 'game_boost' | 'social_media' | 'websites' | 'other'
-    icon TEXT DEFAULT '🎮',
+    icon TEXT DEFAULT '',
     icon_image TEXT DEFAULT '',      -- uploaded logo image path, takes priority over emoji icon if set
     sort_order INTEGER DEFAULT 0
 );
@@ -244,6 +244,14 @@ CREATE TABLE IF NOT EXISTS games (
     sort_order INTEGER DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS platforms (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    slug TEXT UNIQUE NOT NULL,
+    image_url TEXT DEFAULT '',
+    sort_order INTEGER DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS listing_images (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     listing_id INTEGER NOT NULL REFERENCES listings(id) ON DELETE CASCADE,
@@ -260,6 +268,10 @@ def migrate_schema(db):
         db.execute("ALTER TABLE listings ADD COLUMN game_id INTEGER REFERENCES games(id)")
     except sqlite3.OperationalError:
         pass  # column already exists
+    try:
+        db.execute("ALTER TABLE listings ADD COLUMN platform_id INTEGER REFERENCES platforms(id)")
+    except sqlite3.OperationalError:
+        pass  # column already exists
     db.commit()
 
 
@@ -271,6 +283,38 @@ def seed_games_if_empty(db):
         db.execute(
             "INSERT INTO games (name, slug, sort_order) VALUES (?,?,?)",
             (game, slugify(game), i),
+        )
+    db.commit()
+
+
+def seed_platforms_if_empty(db):
+    count = db.execute("SELECT COUNT(*) c FROM platforms").fetchone()["c"]
+    if count > 0:
+        return
+    for i, platform in enumerate(SOCIAL_PLATFORMS.keys()):
+        db.execute(
+            "INSERT INTO platforms (name, slug, sort_order) VALUES (?,?,?)",
+            (platform, slugify(platform), i),
+        )
+    db.commit()
+
+
+def migrate_legacy_social_categories_to_platform(db):
+    """Categories were originally seeded per platform+service (e.g. 'TikTok
+    Followers', 'TikTok Likes'). This tags any listing sitting in one of those
+    categories with the matching row in the new `platforms` table, so the
+    'Browse by Platform' hub (TikTok / Instagram / Facebook...) can group every
+    account, service, and listing for that platform in one place — the same
+    way `games` groups gaming accounts. Categories themselves are left alone;
+    only the platform tag is backfilled."""
+    for platform in SOCIAL_PLATFORMS.keys():
+        platform_row = db.execute("SELECT id FROM platforms WHERE name=?", (platform,)).fetchone()
+        if not platform_row:
+            continue
+        db.execute(
+            "UPDATE listings SET platform_id=? WHERE platform_id IS NULL AND category_id IN "
+            "(SELECT id FROM categories WHERE section='social_media' AND name LIKE ?)",
+            (platform_row["id"], f"{platform} %"),
         )
     db.commit()
 
@@ -327,7 +371,9 @@ def init_db():
     migrate_schema(db)
     seed_if_empty(db)
     seed_games_if_empty(db)
+    seed_platforms_if_empty(db)
     migrate_legacy_per_game_categories(db)
+    migrate_legacy_social_categories_to_platform(db)
     db.close()
 
 
@@ -461,24 +507,24 @@ def seed_if_empty(db):
     # Gaming accounts categories (games are selected via a dropdown on the
     # listing itself now — see the `games` table — not as separate categories)
     for c in GAMING_ACCOUNT_CATEGORIES:
-        add_cat(c, "gaming_accounts", "🕹️")
+        add_cat(c, "gaming_accounts", "")
 
     # Game boosting / leveling / credits categories
     for c in BOOST_CATEGORIES:
-        add_cat(c, "game_boost", "🚀")
+        add_cat(c, "game_boost", "")
 
     # Social media, per platform per service
     for platform, services in SOCIAL_PLATFORMS.items():
         for service in services:
-            add_cat(f"{platform} {service}", "social_media", "📱")
+            add_cat(f"{platform} {service}", "social_media", "")
 
     # Websites
     for c in WEBSITE_CATEGORIES:
-        add_cat(c, "websites", "🌐")
+        add_cat(c, "websites", "")
 
     # Other digital goods
     for c in OTHER_CATEGORIES:
-        add_cat(c, "other", "💳")
+        add_cat(c, "other", "")
 
     db.commit()
 
@@ -569,13 +615,16 @@ def index():
         total = db.execute("SELECT COUNT(*) c FROM categories WHERE section=?", (section,)).fetchone()["c"]
         sections.append({"key": section, "label": label, "categories": cats, "total": total})
     featured = db.execute(
-        "SELECT l.*, c.name as cat_name, c.section as section, g.name as game_name, g.image_url as game_image "
+        "SELECT l.*, c.name as cat_name, c.section as section, g.name as game_name, g.image_url as game_image, "
+        "p.name as platform_name, p.image_url as platform_image "
         "FROM listings l JOIN categories c ON c.id = l.category_id "
         "LEFT JOIN games g ON g.id = l.game_id "
+        "LEFT JOIN platforms p ON p.id = l.platform_id "
         "WHERE l.is_active=1 ORDER BY l.created_at DESC LIMIT 8"
     ).fetchall()
     games = db.execute("SELECT * FROM games ORDER BY sort_order LIMIT 16").fetchall()
-    return render_template("index.html", sections=sections, featured=featured, section_labels=SECTION_LABELS, games=games)
+    platforms = db.execute("SELECT * FROM platforms ORDER BY sort_order LIMIT 16").fetchall()
+    return render_template("index.html", sections=sections, featured=featured, section_labels=SECTION_LABELS, games=games, platforms=platforms)
 
 
 @app.route("/section/<section>")
@@ -602,16 +651,24 @@ def category_view(cat_id):
         return "Not found", 404
 
     game_id = request.args.get("game_id", "").strip()
+    platform_id = request.args.get("platform_id", "").strip()
     is_game_section = cat["section"] in ("gaming_accounts", "game_boost")
+    is_social_section = cat["section"] == "social_media"
 
     base_query = (
-        "SELECT l.*, g.name as game_name, g.image_url as game_image FROM listings l "
-        "LEFT JOIN games g ON g.id = l.game_id WHERE l.category_id=? AND l.is_active=1"
+        "SELECT l.*, g.name as game_name, g.image_url as game_image, "
+        "p.name as platform_name, p.image_url as platform_image FROM listings l "
+        "LEFT JOIN games g ON g.id = l.game_id "
+        "LEFT JOIN platforms p ON p.id = l.platform_id "
+        "WHERE l.category_id=? AND l.is_active=1"
     )
     params = [cat_id]
     if is_game_section and game_id:
         base_query += " AND l.game_id=?"
         params.append(game_id)
+    if is_social_section and platform_id:
+        base_query += " AND l.platform_id=?"
+        params.append(platform_id)
     listings = db.execute(base_query + " ORDER BY l.price ASC", params).fetchall()
 
     gallery_map = get_gallery_map([l["id"] for l in listings])
@@ -624,9 +681,18 @@ def category_view(cat_id):
             (cat_id,),
         ).fetchall()
 
+    platforms_in_category = []
+    if is_social_section:
+        platforms_in_category = db.execute(
+            "SELECT DISTINCT p.id, p.name, p.image_url FROM listings l "
+            "JOIN platforms p ON p.id = l.platform_id WHERE l.category_id=? AND l.is_active=1 ORDER BY p.name",
+            (cat_id,),
+        ).fetchall()
+
     return render_template(
         "category.html", category=cat, listings=listings, label=SECTION_LABELS.get(cat["section"], ""),
         gallery_map=gallery_map, games_in_category=games_in_category, selected_game=game_id,
+        platforms_in_category=platforms_in_category, selected_platform=platform_id,
     )
 
 
@@ -656,6 +722,32 @@ def game_view(game_id):
     return render_template("game_view.html", game=game, listings=listings, gallery_map=gallery_map, section_labels=SECTION_LABELS)
 
 
+@app.route("/platforms")
+def platforms_hub():
+    db = get_db()
+    platforms = db.execute(
+        "SELECT p.*, (SELECT COUNT(*) FROM listings l WHERE l.platform_id=p.id AND l.is_active=1) as listing_count "
+        "FROM platforms p ORDER BY p.sort_order"
+    ).fetchall()
+    return render_template("platforms_hub.html", platforms=platforms)
+
+
+@app.route("/platforms/<int:platform_id>")
+def platform_view(platform_id):
+    db = get_db()
+    platform = db.execute("SELECT * FROM platforms WHERE id=?", (platform_id,)).fetchone()
+    if not platform:
+        return "Not found", 404
+    listings = db.execute(
+        "SELECT l.*, c.name as cat_name, c.section as section FROM listings l "
+        "JOIN categories c ON c.id = l.category_id "
+        "WHERE l.platform_id=? AND l.is_active=1 ORDER BY c.name, l.price ASC",
+        (platform_id,),
+    ).fetchall()
+    gallery_map = get_gallery_map([l["id"] for l in listings])
+    return render_template("platform_view.html", platform=platform, listings=listings, gallery_map=gallery_map, section_labels=SECTION_LABELS)
+
+
 @app.route("/search")
 def search():
     db = get_db()
@@ -663,11 +755,12 @@ def search():
     results = []
     if q:
         results = db.execute(
-            "SELECT l.*, c.name as cat_name, c.section as section, g.name as game_name "
+            "SELECT l.*, c.name as cat_name, c.section as section, g.name as game_name, p.name as platform_name "
             "FROM listings l JOIN categories c ON c.id=l.category_id "
             "LEFT JOIN games g ON g.id = l.game_id "
-            "WHERE l.is_active=1 AND (l.title LIKE ? OR c.name LIKE ? OR g.name LIKE ?) LIMIT 60",
-            (f"%{q}%", f"%{q}%", f"%{q}%"),
+            "LEFT JOIN platforms p ON p.id = l.platform_id "
+            "WHERE l.is_active=1 AND (l.title LIKE ? OR c.name LIKE ? OR g.name LIKE ? OR p.name LIKE ?) LIMIT 60",
+            (f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%"),
         ).fetchall()
     return render_template("search.html", q=q, results=results)
 
@@ -1036,7 +1129,7 @@ def admin_add_category():
     db = get_db()
     name = request.form.get("name", "").strip()
     section = request.form.get("section", "other")
-    icon = request.form.get("icon", "🎮").strip() or "🎮"
+    icon = ""
     logo_path = save_uploaded_image(request.files.get("logo_file"), "categories")
     if name:
         slug = slugify(f"{section}-{name}-{secrets.token_hex(2)}")
@@ -1079,8 +1172,9 @@ def admin_listings():
     db = get_db()
     cat_id = request.args.get("category_id")
     base = (
-        "SELECT l.*, c.name as cat_name, c.section as section, g.name as game_name "
+        "SELECT l.*, c.name as cat_name, c.section as section, g.name as game_name, p.name as platform_name "
         "FROM listings l JOIN categories c ON c.id=l.category_id LEFT JOIN games g ON g.id=l.game_id "
+        "LEFT JOIN platforms p ON p.id=l.platform_id "
     )
     if cat_id:
         listings = db.execute(base + "WHERE l.category_id=? ORDER BY l.id DESC", (cat_id,)).fetchall()
@@ -1088,6 +1182,7 @@ def admin_listings():
         listings = db.execute(base + "ORDER BY l.id DESC LIMIT 200").fetchall()
     categories = db.execute("SELECT * FROM categories ORDER BY section, sort_order").fetchall()
     games = db.execute("SELECT * FROM games ORDER BY name").fetchall()
+    platforms = db.execute("SELECT * FROM platforms ORDER BY name").fetchall()
     gallery_counts = {}
     if listings:
         placeholders = ",".join("?" for _ in listings)
@@ -1098,7 +1193,7 @@ def admin_listings():
             gallery_counts[row["listing_id"]] = row["c"]
     return render_template(
         "admin_listings.html", listings=listings, categories=categories, selected_cat=cat_id,
-        games=games, gallery_counts=gallery_counts, section_labels=SECTION_LABELS,
+        games=games, platforms=platforms, gallery_counts=gallery_counts, section_labels=SECTION_LABELS,
     )
 
 
@@ -1113,6 +1208,7 @@ def admin_add_listing():
     stock = request.form.get("stock", "999").strip()
     image_url = request.form.get("image_url", "").strip()
     game_id = request.form.get("game_id") or None
+    platform_id = request.form.get("platform_id") or None
     uploaded_path = save_uploaded_image(request.files.get("image_file"), "listings")
     final_image = uploaded_path or image_url
     try:
@@ -1124,8 +1220,8 @@ def admin_add_listing():
 
     if title and category_id:
         cur = db.execute(
-            "INSERT INTO listings (category_id, title, description, price, stock, image_url, game_id) VALUES (?,?,?,?,?,?,?)",
-            (category_id, title, description, price_f, stock_i, final_image, game_id),
+            "INSERT INTO listings (category_id, title, description, price, stock, image_url, game_id, platform_id) VALUES (?,?,?,?,?,?,?,?)",
+            (category_id, title, description, price_f, stock_i, final_image, game_id, platform_id),
         )
         listing_id = cur.lastrowid
         for i, f in enumerate(request.files.getlist("gallery_files")):
@@ -1151,6 +1247,7 @@ def admin_edit_listing(listing_id):
     is_active = 1 if request.form.get("is_active") == "on" else 0
     image_url = request.form.get("image_url", "").strip()
     game_id = request.form.get("game_id") or None
+    platform_id = request.form.get("platform_id") or None
     uploaded_path = save_uploaded_image(request.files.get("image_file"), "listings")
     try:
         price_f = float(price)
@@ -1161,8 +1258,8 @@ def admin_edit_listing(listing_id):
 
     final_image = uploaded_path or image_url
     db.execute(
-        "UPDATE listings SET title=?, description=?, price=?, stock=?, is_active=?, image_url=?, game_id=? WHERE id=?",
-        (title, description, price_f, stock_i, is_active, final_image, game_id, listing_id),
+        "UPDATE listings SET title=?, description=?, price=?, stock=?, is_active=?, image_url=?, game_id=?, platform_id=? WHERE id=?",
+        (title, description, price_f, stock_i, is_active, final_image, game_id, platform_id, listing_id),
     )
     for i, f in enumerate(request.files.getlist("gallery_files")):
         path = save_uploaded_image(f, "listings")
@@ -1280,6 +1377,59 @@ def admin_delete_game(game_id):
     db.commit()
     flash("Game removed", "success")
     return redirect(url_for("admin_games"))
+
+
+@app.route("/admin/platforms")
+@admin_required
+def admin_platforms():
+    db = get_db()
+    platforms = db.execute(
+        "SELECT p.*, (SELECT COUNT(*) FROM listings l WHERE l.platform_id=p.id) as listing_count "
+        "FROM platforms p ORDER BY p.sort_order"
+    ).fetchall()
+    return render_template("admin_platforms.html", platforms=platforms)
+
+
+@app.route("/admin/platforms/add", methods=["POST"])
+@admin_required
+def admin_add_platform():
+    db = get_db()
+    name = request.form.get("name", "").strip()
+    logo_path = save_uploaded_image(request.files.get("image_file"), "platforms")
+    if name:
+        max_order = db.execute("SELECT COALESCE(MAX(sort_order),0) m FROM platforms").fetchone()["m"]
+        db.execute(
+            "INSERT INTO platforms (name, slug, image_url, sort_order) VALUES (?,?,?,?)",
+            (name, slugify(f"{name}-{secrets.token_hex(2)}"), logo_path or "", max_order + 1),
+        )
+        db.commit()
+        flash(f"Platform '{name}' added", "success")
+    return redirect(url_for("admin_platforms"))
+
+
+@app.route("/admin/platforms/<int:platform_id>/image", methods=["POST"])
+@admin_required
+def admin_update_platform_image(platform_id):
+    db = get_db()
+    logo_path = save_uploaded_image(request.files.get("image_file"), "platforms")
+    if logo_path:
+        db.execute("UPDATE platforms SET image_url=? WHERE id=?", (logo_path, platform_id))
+        db.commit()
+        flash("Platform image updated", "success")
+    else:
+        flash("Please choose a valid image file", "error")
+    return redirect(url_for("admin_platforms"))
+
+
+@app.route("/admin/platforms/<int:platform_id>/delete", methods=["POST"])
+@admin_required
+def admin_delete_platform(platform_id):
+    db = get_db()
+    db.execute("UPDATE listings SET platform_id=NULL WHERE platform_id=?", (platform_id,))
+    db.execute("DELETE FROM platforms WHERE id=?", (platform_id,))
+    db.commit()
+    flash("Platform removed", "success")
+    return redirect(url_for("admin_platforms"))
 
 
 @app.route("/admin/orders")
