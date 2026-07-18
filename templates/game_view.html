@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}{{ game['name'] }} - IPNET{% endblock %}
+{% block content %}
+<section class="page-header">
+  <p class="breadcrumb"><a href="{{ url_for('games_hub') }}">Browse by Game</a> / {{ game['name'] }}</p>
+  <h1>
+    {% if game['image_url'] %}<img src="{{ game['image_url'] }}" alt="" class="cat-header-logo">{% endif %}
+    {{ game['name'] }}
+  </h1>
+</section>
+<div class="grid">
+  {% for item in listings %}
+  <div class="card listing-card">
+    {% if item['image_url'] %}<img src="{{ item['image_url'] }}" alt="{{ item['title'] }}" class="listing-img">{% endif %}
+    {% if gallery_map.get(item['id']) %}
+    <div class="gallery-strip">
+      {% for shot in gallery_map[item['id']] %}
+      <img src="{{ shot }}" alt="screenshot" class="gallery-thumb" onclick="window.open('{{ shot }}','_blank')">
+      {% endfor %}
+    </div>
+    {% endif %}
+    <div class="card-badge">{{ section_labels.get(item['section'], '') }}</div>
+    <h3>{{ item['title'] }}</h3>
+    <p class="muted">{{ item['cat_name'] }}</p>
+    {% if item['description'] %}<p class="muted">{{ item['description'] }}</p>{% endif %}
+    <div class="price">{{ fmt_price(item['price']) }}</div>
+    <div class="stock-tag">{{ item['stock'] }} in stock</div>
+    <button class="btn-primary add-to-cart" data-id="{{ item['id'] }}" data-title="{{ item['title'] }}" data-price="{{ item['price'] }}">Add to Cart</button>
+  </div>
+  {% else %}
+  <p>No listings for this game yet. Check back soon, or contact us for a custom order.</p>
+  {% endfor %}
+</div>
+{% endblock %}

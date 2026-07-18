@@ -1,0 +1,46 @@
+{% extends "admin_base.html" %}
+{% block admin_content %}
+<h1>Games</h1>
+<p class="muted">These power the game dropdown on gaming-account and boost listings, and the "Browse by Game" storefront section.</p>
+
+<div class="card">
+  <h3>Add New Game</h3>
+  <form method="post" action="{{ url_for('admin_add_game') }}" enctype="multipart/form-data" class="inline-form">
+    <input type="text" name="name" placeholder="Game name (e.g. Valorant)" required>
+    <input type="file" name="image_file" accept="image/png,image/jpeg,image/webp,image/gif" title="Game image (optional)">
+    <button type="submit" class="btn-primary">Add Game</button>
+  </form>
+</div>
+
+<table class="admin-table">
+  <thead><tr><th>Image</th><th>Name</th><th>Listings</th><th>Update Image</th><th></th></tr></thead>
+  <tbody>
+  {% for g in games %}
+    <tr>
+      <td>
+        {% if g['image_url'] %}
+          <img src="{{ g['image_url'] }}" alt="" style="height:32px;width:32px;object-fit:contain;border-radius:6px;">
+        {% else %}
+          <span style="font-size:1.4rem;">🎮</span>
+        {% endif %}
+      </td>
+      <td>{{ g['name'] }}</td>
+      <td>{{ g['listing_count'] }}</td>
+      <td>
+        <form method="post" action="{{ url_for('admin_update_game_image', game_id=g['id']) }}" enctype="multipart/form-data" class="inline-form">
+          <input type="file" name="image_file" accept="image/png,image/jpeg,image/webp,image/gif" style="max-width:160px;">
+          <button type="submit" class="btn-primary-sm">Save</button>
+        </form>
+      </td>
+      <td>
+        <form method="post" action="{{ url_for('admin_delete_game', game_id=g['id']) }}" onsubmit="return confirm('Remove this game? Listings will keep their category but lose the game tag.')">
+          <button type="submit" class="btn-danger-sm">Delete</button>
+        </form>
+      </td>
+    </tr>
+  {% else %}
+    <tr><td colspan="5">No games yet.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

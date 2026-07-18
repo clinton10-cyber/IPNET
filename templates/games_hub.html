@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Browse by Game - IPNET{% endblock %}
+{% block content %}
+<section class="page-header">
+  <h1>Browse by Game</h1>
+  <p class="muted">Pick a game to see every account, boost, and credit listing for it in one place.</p>
+</section>
+<div class="grid cat-grid">
+  {% for g in games %}
+  <a class="card cat-card" href="{{ url_for('game_view', game_id=g['id']) }}">
+    {% if g['image_url'] %}
+      <img src="{{ g['image_url'] }}" alt="{{ g['name'] }}" class="cat-logo-img">
+    {% else %}
+      <div class="cat-icon">🎮</div>
+    {% endif %}
+    <div class="cat-name">{{ g['name'] }}</div>
+    <div class="muted">{{ g['listing_count'] }} listing{{ 's' if g['listing_count'] != 1 else '' }}</div>
+  </a>
+  {% else %}
+  <p>No games added yet.</p>
+  {% endfor %}
+</div>
+{% endblock %}
