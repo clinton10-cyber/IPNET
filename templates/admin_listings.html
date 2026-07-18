@@ -4,11 +4,17 @@
 
 <div class="card">
   <h3>Add New Listing</h3>
-  <form method="post" action="{{ url_for('admin_add_listing') }}" class="stack-form">
-    <select name="category_id" required>
+  <form method="post" action="{{ url_for('admin_add_listing') }}" enctype="multipart/form-data" class="stack-form">
+    <select name="category_id" id="new-category-select" required>
       <option value="">Select category...</option>
       {% for c in categories %}
-      <option value="{{ c['id'] }}" {% if selected_cat and selected_cat|string == c['id']|string %}selected{% endif %}>{{ c['name'] }} ({{ c['section'] }})</option>
+      <option value="{{ c['id'] }}" data-section="{{ c['section'] }}" {% if selected_cat and selected_cat|string == c['id']|string %}selected{% endif %}>{{ c['name'] }} ({{ section_labels.get(c['section'], c['section']) }})</option>
+      {% endfor %}
+    </select>
+    <select name="game_id" id="new-game-select" style="display:none;">
+      <option value="">Select game (optional)...</option>
+      {% for g in games %}
+      <option value="{{ g['id'] }}">{{ g['name'] }}</option>
       {% endfor %}
     </select>
     <input type="text" name="title" placeholder="Listing title (e.g. TikTok 1000 Followers)" required>
@@ -16,8 +22,12 @@
     <div class="row-fields">
       <input type="number" step="0.01" name="price" placeholder="Price (USD)" required>
       <input type="number" name="stock" placeholder="Stock" value="999">
-      <input type="text" name="image_url" placeholder="Image URL (optional)">
     </div>
+    <label class="muted">Main image (optional)</label>
+    <input type="file" name="image_file" accept="image/png,image/jpeg,image/webp,image/gif">
+    <input type="text" name="image_url" placeholder="...or paste an image URL instead">
+    <label class="muted">Screenshots / gallery for this account (optional, multiple allowed)</label>
+    <input type="file" name="gallery_files" accept="image/png,image/jpeg,image/webp,image/gif" multiple>
     <button type="submit" class="btn-primary">Add Listing</button>
   </form>
 </div>
@@ -26,25 +36,39 @@
   <select name="category_id" onchange="this.form.submit()">
     <option value="">All categories</option>
     {% for c in categories %}
-    <option value="{{ c['id'] }}" {% if selected_cat and selected_cat|string == c['id']|string %}selected{% endif %}>{{ c['name'] }}</option>
+    <option value="{{ c['id'] }}" {% if selected_cat and selected_cat|string == c['id']|string %}selected{% endif %}>{{ c['name'] }} ({{ section_labels.get(c['section'], c['section']) }})</option>
     {% endfor %}
   </select>
 </form>
 
 <table class="admin-table">
-  <thead><tr><th>Title</th><th>Category</th><th>Price</th><th>Stock</th><th>Active</th><th>Actions</th></tr></thead>
+  <thead><tr><th>Image</th><th>Title</th><th>Category</th><th>Game</th><th>Price</th><th>Stock</th><th>Active</th><th>Gallery</th><th>Actions</th></tr></thead>
   <tbody>
   {% for l in listings %}
     <tr>
+      <td>
+        {% if l['image_url'] %}<img src="{{ l['image_url'] }}" alt="" style="width:48px;height:48px;object-fit:cover;border-radius:6px;">{% else %}—{% endif %}
+      </td>
       <td><input form="f{{ l['id'] }}" type="text" name="title" value="{{ l['title'] }}"></td>
       <td>{{ l['cat_name'] }}</td>
+      <td>
+        <select form="f{{ l['id'] }}" name="game_id" style="width:130px;">
+          <option value="">—</option>
+          {% for g in games %}
+          <option value="{{ g['id'] }}" {% if l['game_id'] == g['id'] %}selected{% endif %}>{{ g['name'] }}</option>
+          {% endfor %}
+        </select>
+      </td>
       <td><input form="f{{ l['id'] }}" type="number" step="0.01" name="price" value="{{ l['price'] }}" style="width:90px;"></td>
       <td><input form="f{{ l['id'] }}" type="number" name="stock" value="{{ l['stock'] }}" style="width:70px;"></td>
       <td><input form="f{{ l['id'] }}" type="checkbox" name="is_active" {% if l['is_active'] %}checked{% endif %}></td>
+      <td><a href="{{ url_for('admin_listing_images', listing_id=l['id']) }}">{{ gallery_counts.get(l['id'], 0) }} photo(s)</a></td>
       <td>
-        <form id="f{{ l['id'] }}" method="post" action="{{ url_for('admin_edit_listing', listing_id=l['id']) }}" style="display:inline;">
+        <form id="f{{ l['id'] }}" method="post" action="{{ url_for('admin_edit_listing', listing_id=l['id']) }}" enctype="multipart/form-data" style="display:inline-flex;gap:6px;align-items:center;flex-wrap:wrap;">
           <input type="hidden" name="description" value="{{ l['description'] }}">
           <input type="hidden" name="image_url" value="{{ l['image_url'] }}">
+          <input type="file" name="image_file" accept="image/png,image/jpeg,image/webp,image/gif" style="max-width:110px;font-size:11px;" title="Replace main image">
+          <input type="file" name="gallery_files" accept="image/png,image/jpeg,image/webp,image/gif" multiple style="max-width:110px;font-size:11px;" title="Add screenshots">
           <button type="submit" class="btn-primary-sm">Save</button>
         </form>
         <form method="post" action="{{ url_for('admin_delete_listing', listing_id=l['id']) }}" onsubmit="return confirm('Delete this listing?')" style="display:inline;">
@@ -53,8 +77,21 @@
       </td>
     </tr>
   {% else %}
-    <tr><td colspan="6">No listings found.</td></tr>
+    <tr><td colspan="9">No listings found.</td></tr>
   {% endfor %}
   </tbody>
 </table>
+{% endblock %}
+{% block scripts %}
+<script>
+  const catSelect = document.getElementById("new-category-select");
+  const gameSelect = document.getElementById("new-game-select");
+  function toggleGameSelect() {
+    const opt = catSelect.options[catSelect.selectedIndex];
+    const section = opt ? opt.dataset.section : "";
+    gameSelect.style.display = (section === "gaming_accounts" || section === "game_boost") ? "block" : "none";
+  }
+  catSelect.addEventListener("change", toggleGameSelect);
+  toggleGameSelect();
+</script>
 {% endblock %}
