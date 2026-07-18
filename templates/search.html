@@ -8,8 +8,9 @@
   {% for item in results %}
   <div class="card listing-card">
     <div class="card-badge">{{ item['cat_name'] }}</div>
+    {% if item['game_name'] %}<div class="card-badge game-badge">{{ item['game_name'] }}</div>{% endif %}
     <h3>{{ item['title'] }}</h3>
-    <div class="price">${{ '%.2f'|format(item['price']) }}</div>
+    <div class="price">{{ fmt_price(item['price']) }}</div>
     <button class="btn-primary add-to-cart" data-id="{{ item['id'] }}" data-title="{{ item['title'] }}" data-price="{{ item['price'] }}">Add to Cart</button>
   </div>
   {% else %}
