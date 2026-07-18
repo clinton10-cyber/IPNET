@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Order {{ order['order_ref'] }} - IPNET{% endblock %}
+{% block content %}
+<section class="page-header">
+  <h1>Order {{ order['order_ref'] }}</h1>
+  <p>Status: <span class="status-tag status-{{ order['status'] }}">{{ order['status']|capitalize }}</span></p>
+</section>
+<div class="card" style="max-width:600px;margin:0 auto;">
+  <h3>Items</h3>
+  <ul>
+    {% for it in items %}
+    <li>{{ it['title'] }} x{{ it['qty'] }} — ${{ '%.2f'|format(it['line_total']) }}</li>
+    {% endfor %}
+  </ul>
+  <p><strong>Total: ${{ '%.2f'|format(order['total']) }}</strong></p>
+  <p class="muted">We'll reach out via the contact info provided to arrange payment and delivery.</p>
+</div>
+{% endblock %}

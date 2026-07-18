@@ -1,0 +1,58 @@
+{% extends "admin_base.html" %}
+{% block admin_content %}
+<h1>Order {{ order['order_ref'] }}</h1>
+<p class="muted">Buyer: {{ order['buyer_name'] }} ({{ order['buyer_contact'] }}) — {{ order['buyer_country'] }}
+  {% if order['user_email'] %} — Account: {{ order['user_email'] }}{% endif %}
+</p>
+<p>Status: <span class="status-tag status-{{ order['status'] }}">{{ order['status'] }}</span></p>
+
+<div class="card">
+  <h3>Items</h3>
+  <ul>
+  {% for it in items %}
+    <li>{{ it['title'] }} x{{ it['qty'] }} — ${{ '%.2f'|format(it['line_total']) }}</li>
+  {% endfor %}
+  </ul>
+  <p><strong>Total: ${{ '%.2f'|format(order['total']) }}</strong></p>
+</div>
+
+<div class="card">
+  <h3>Deliver Login Credentials</h3>
+  <p class="muted">This will appear instantly in the buyer's dashboard, and mark the order as delivered.</p>
+  <form method="post" action="{{ url_for('admin_deliver_credentials', order_id=order['id']) }}" class="stack-form">
+    <select name="item_title" required>
+      <option value="">Select item...</option>
+      {% for it in items %}
+      <option value="{{ it['title'] }}">{{ it['title'] }}</option>
+      {% endfor %}
+    </select>
+    <input type="text" name="username_or_email" placeholder="Username or email">
+    <input type="text" name="password" placeholder="Password">
+    <textarea name="extra_info" placeholder="Extra info (recovery email, notes, instructions...)"></textarea>
+    <button type="submit" class="btn-primary">Deliver to Buyer</button>
+  </form>
+</div>
+
+<div class="card">
+  <h3>Already Delivered</h3>
+  <table class="admin-table">
+    <thead><tr><th>Item</th><th>Username/Email</th><th>Password</th><th></th></tr></thead>
+    <tbody>
+    {% for c in credentials %}
+      <tr>
+        <td>{{ c['item_title'] }}</td>
+        <td>{{ c['username_or_email'] }}</td>
+        <td>{{ c['password'] }}</td>
+        <td>
+          <form method="post" action="{{ url_for('admin_delete_credentials', cred_id=c['id']) }}" onsubmit="return confirm('Remove this delivered credential?')">
+            <button type="submit" class="btn-danger-sm">Remove</button>
+          </form>
+        </td>
+      </tr>
+    {% else %}
+      <tr><td colspan="4">Nothing delivered yet.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

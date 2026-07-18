@@ -1,0 +1,43 @@
+{% extends "admin_base.html" %}
+{% block admin_content %}
+<h1>Categories</h1>
+
+<div class="card">
+  <h3>Add New Category</h3>
+  <form method="post" action="{{ url_for('admin_add_category') }}" class="inline-form">
+    <input type="text" name="name" placeholder="Category name (e.g. Apex Legends Accounts)" required>
+    <select name="section">
+      {% for key, label in section_labels.items() %}
+      <option value="{{ key }}">{{ label }}</option>
+      {% endfor %}
+    </select>
+    <input type="text" name="icon" placeholder="Icon (emoji)" maxlength="4" value="🎮" style="width:70px;">
+    <button type="submit" class="btn-primary">Add Category</button>
+  </form>
+</div>
+
+<div class="filter-tabs">
+  <a href="{{ url_for('admin_categories') }}" class="{{ 'active' if not current_section }}">All</a>
+  {% for key, label in section_labels.items() %}
+  <a href="{{ url_for('admin_categories', section=key) }}" class="{{ 'active' if current_section==key }}">{{ label }}</a>
+  {% endfor %}
+</div>
+
+<table class="admin-table">
+  <thead><tr><th>Icon</th><th>Name</th><th>Section</th><th></th></tr></thead>
+  <tbody>
+  {% for c in categories %}
+    <tr>
+      <td>{{ c['icon'] }}</td>
+      <td><a href="{{ url_for('admin_listings', category_id=c['id']) }}">{{ c['name'] }}</a></td>
+      <td>{{ section_labels.get(c['section'], c['section']) }}</td>
+      <td>
+        <form method="post" action="{{ url_for('admin_delete_category', cat_id=c['id']) }}" onsubmit="return confirm('Delete this category and all its listings?')">
+          <button type="submit" class="btn-danger-sm">Delete</button>
+        </form>
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

@@ -1,0 +1,60 @@
+{% extends "admin_base.html" %}
+{% block admin_content %}
+<h1>Listings & Prices</h1>
+
+<div class="card">
+  <h3>Add New Listing</h3>
+  <form method="post" action="{{ url_for('admin_add_listing') }}" class="stack-form">
+    <select name="category_id" required>
+      <option value="">Select category...</option>
+      {% for c in categories %}
+      <option value="{{ c['id'] }}" {% if selected_cat and selected_cat|string == c['id']|string %}selected{% endif %}>{{ c['name'] }} ({{ c['section'] }})</option>
+      {% endfor %}
+    </select>
+    <input type="text" name="title" placeholder="Listing title (e.g. TikTok 1000 Followers)" required>
+    <textarea name="description" placeholder="Description (optional)"></textarea>
+    <div class="row-fields">
+      <input type="number" step="0.01" name="price" placeholder="Price (USD)" required>
+      <input type="number" name="stock" placeholder="Stock" value="999">
+      <input type="text" name="image_url" placeholder="Image URL (optional)">
+    </div>
+    <button type="submit" class="btn-primary">Add Listing</button>
+  </form>
+</div>
+
+<form method="get" class="filter-tabs">
+  <select name="category_id" onchange="this.form.submit()">
+    <option value="">All categories</option>
+    {% for c in categories %}
+    <option value="{{ c['id'] }}" {% if selected_cat and selected_cat|string == c['id']|string %}selected{% endif %}>{{ c['name'] }}</option>
+    {% endfor %}
+  </select>
+</form>
+
+<table class="admin-table">
+  <thead><tr><th>Title</th><th>Category</th><th>Price</th><th>Stock</th><th>Active</th><th>Actions</th></tr></thead>
+  <tbody>
+  {% for l in listings %}
+    <tr>
+      <td><input form="f{{ l['id'] }}" type="text" name="title" value="{{ l['title'] }}"></td>
+      <td>{{ l['cat_name'] }}</td>
+      <td><input form="f{{ l['id'] }}" type="number" step="0.01" name="price" value="{{ l['price'] }}" style="width:90px;"></td>
+      <td><input form="f{{ l['id'] }}" type="number" name="stock" value="{{ l['stock'] }}" style="width:70px;"></td>
+      <td><input form="f{{ l['id'] }}" type="checkbox" name="is_active" {% if l['is_active'] %}checked{% endif %}></td>
+      <td>
+        <form id="f{{ l['id'] }}" method="post" action="{{ url_for('admin_edit_listing', listing_id=l['id']) }}" style="display:inline;">
+          <input type="hidden" name="description" value="{{ l['description'] }}">
+          <input type="hidden" name="image_url" value="{{ l['image_url'] }}">
+          <button type="submit" class="btn-primary-sm">Save</button>
+        </form>
+        <form method="post" action="{{ url_for('admin_delete_listing', listing_id=l['id']) }}" onsubmit="return confirm('Delete this listing?')" style="display:inline;">
+          <button type="submit" class="btn-danger-sm">Delete</button>
+        </form>
+      </td>
+    </tr>
+  {% else %}
+    <tr><td colspan="6">No listings found.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

@@ -1,0 +1,30 @@
+{% extends "admin_base.html" %}
+{% block admin_content %}
+<h1>Orders</h1>
+<table class="admin-table">
+  <thead><tr><th>Ref</th><th>Buyer</th><th>Account</th><th>Total</th><th>Status</th><th>Date</th><th></th></tr></thead>
+  <tbody>
+  {% for o in orders %}
+    <tr>
+      <td>{{ o['order_ref'] }}</td>
+      <td>{{ o['buyer_name'] }}</td>
+      <td>{{ o['user_email'] or '—' }}</td>
+      <td>${{ '%.2f'|format(o['total']) }}</td>
+      <td>
+        <form method="post" action="{{ url_for('admin_update_order_status', order_id=o['id']) }}">
+          <select name="status" onchange="this.form.submit()">
+            {% for s in ['pending','paid','delivered','cancelled'] %}
+            <option value="{{ s }}" {% if o['status']==s %}selected{% endif %}>{{ s }}</option>
+            {% endfor %}
+          </select>
+        </form>
+      </td>
+      <td>{{ o['created_at'] }}</td>
+      <td><a href="{{ url_for('admin_order_detail', order_id=o['id']) }}" class="btn-primary-sm" style="display:inline-block;text-decoration:none;">Manage</a></td>
+    </tr>
+  {% else %}
+    <tr><td colspan="7">No orders yet.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

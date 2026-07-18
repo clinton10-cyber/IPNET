@@ -1,0 +1,26 @@
+{% extends "admin_base.html" %}
+{% block admin_content %}
+<h1>Users</h1>
+<table class="admin-table">
+  <thead><tr><th>Email</th><th>Name</th><th>Country</th><th>Wallet</th><th>Joined</th><th>Adjust Wallet</th></tr></thead>
+  <tbody>
+  {% for u in users %}
+    <tr>
+      <td>{{ u['email'] }}</td>
+      <td>{{ u['full_name'] }}</td>
+      <td>{{ u['country'] }}</td>
+      <td>${{ '%.2f'|format(u['wallet_balance']) }}</td>
+      <td>{{ u['created_at'] }}</td>
+      <td>
+        <form method="post" action="{{ url_for('admin_adjust_wallet', user_id=u['id']) }}" class="inline-form">
+          <input type="number" step="0.01" name="amount" placeholder="+/- amount" style="width:110px;">
+          <button type="submit" class="btn-primary-sm">Apply</button>
+        </form>
+      </td>
+    </tr>
+  {% else %}
+    <tr><td colspan="6">No users yet.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

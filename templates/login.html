@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}Login - IPNET{% endblock %}
+{% block content %}
+<section class="page-header"><h1>Log in to IPNET</h1></section>
+<div class="card" style="max-width:420px;margin:0 auto 40px;">
+  <form method="post" class="stack-form">
+    <input type="email" name="email" placeholder="Email" required>
+    <input type="password" name="password" placeholder="Password" required>
+    <button type="submit" class="btn-primary">Log In</button>
+  </form>
+  <p class="muted" style="margin-top:14px;">No account yet? <a href="{{ url_for('register') }}" style="color:var(--accent);">Sign up</a></p>
+</div>
+{% endblock %}

@@ -1,0 +1,28 @@
+{% extends "admin_base.html" %}
+{% block admin_content %}
+<h1>Dashboard</h1>
+<div class="stat-grid">
+  <div class="stat-card"><div class="stat-num">{{ stats.categories }}</div><div>Categories</div></div>
+  <div class="stat-card"><div class="stat-num">{{ stats.listings }}</div><div>Listings</div></div>
+  <div class="stat-card"><div class="stat-num">{{ stats.orders }}</div><div>Total Orders</div></div>
+  <div class="stat-card"><div class="stat-num">{{ stats.pending_orders }}</div><div>Pending Orders</div></div>
+</div>
+
+<h2>Recent Orders</h2>
+<table class="admin-table">
+  <thead><tr><th>Ref</th><th>Buyer</th><th>Total</th><th>Status</th><th>Date</th></tr></thead>
+  <tbody>
+  {% for o in recent_orders %}
+    <tr>
+      <td>{{ o['order_ref'] }}</td>
+      <td>{{ o['buyer_name'] }}</td>
+      <td>${{ '%.2f'|format(o['total']) }}</td>
+      <td><span class="status-tag status-{{ o['status'] }}">{{ o['status'] }}</span></td>
+      <td>{{ o['created_at'] }}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="5">No orders yet.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

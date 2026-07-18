@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="hero">
+  <h1>Buy Gaming Accounts, Boosts, Credits & Social Media Growth</h1>
+  <p>Trusted worldwide. 50+ games supported. Instant categories for every platform.</p>
+</section>
+
+{% if featured %}
+<section class="featured">
+  <h2>Featured Listings</h2>
+  <div class="grid">
+    {% for item in featured %}
+    <div class="card listing-card">
+      <div class="card-badge">{{ section_labels.get(item['section'], '') }}</div>
+      <h3>{{ item['title'] }}</h3>
+      <p class="muted">{{ item['cat_name'] }}</p>
+      <div class="price">${{ '%.2f'|format(item['price']) }}</div>
+      <button class="btn-primary add-to-cart" data-id="{{ item['id'] }}" data-title="{{ item['title'] }}" data-price="{{ item['price'] }}">Add to Cart</button>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+{% for s in sections %}
+<section class="section-block">
+  <div class="section-block-header">
+    <h2>{{ s.label }}</h2>
+    <a href="{{ url_for('section_view', section=s.key) }}" class="see-all">See all ({{ s.total }}) →</a>
+  </div>
+  <div class="grid cat-grid">
+    {% for c in s.categories %}
+    <a class="card cat-card" href="{{ url_for('category_view', cat_id=c['id']) }}">
+      <div class="cat-icon">{{ c['icon'] }}</div>
+      <div class="cat-name">{{ c['name'] }}</div>
+    </a>
+    {% endfor %}
+  </div>
+</section>
+{% endfor %}
+{% endblock %}

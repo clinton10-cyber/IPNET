@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}{{ category['name'] }} - IPNET{% endblock %}
+{% block content %}
+<section class="page-header">
+  <p class="breadcrumb"><a href="{{ url_for('section_view', section=category['section']) }}">{{ label }}</a> / {{ category['name'] }}</p>
+  <h1>{{ category['icon'] }} {{ category['name'] }}</h1>
+</section>
+
+<div class="grid">
+  {% for item in listings %}
+  <div class="card listing-card">
+    <h3>{{ item['title'] }}</h3>
+    {% if item['description'] %}<p class="muted">{{ item['description'] }}</p>{% endif %}
+    <div class="price">${{ '%.2f'|format(item['price']) }}</div>
+    <div class="stock-tag">{{ item['stock'] }} in stock</div>
+    <button class="btn-primary add-to-cart" data-id="{{ item['id'] }}" data-title="{{ item['title'] }}" data-price="{{ item['price'] }}">Add to Cart</button>
+  </div>
+  {% else %}
+  <p>No listings yet in this category. Check back soon, or contact us for a custom order.</p>
+  {% endfor %}
+</div>
+{% endblock %}

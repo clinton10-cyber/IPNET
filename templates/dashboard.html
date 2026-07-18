@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block title %}My Dashboard - IPNET{% endblock %}
+{% block content %}
+<section class="page-header">
+  <h1>My Dashboard</h1>
+  <p class="muted">{{ user['email'] }}{% if user['full_name'] %} — {{ user['full_name'] }}{% endif %}</p>
+</section>
+
+<div class="dash-grid">
+  <div class="card wallet-card">
+    <h3>Wallet Balance</h3>
+    <div class="wallet-balance">${{ '%.2f'|format(user['wallet_balance']) }}</div>
+    <p class="muted">≈ ₦{{ '{:,.0f}'.format(user['wallet_balance'] * ngn_rate) }} at current rate</p>
+    <button id="fund-btn" class="btn-primary">Fund Wallet</button>
+    <div id="fund-form" style="display:none;margin-top:12px;">
+      <input type="number" id="fund-amount" min="1" step="1" placeholder="Amount in USD">
+      <button id="fund-submit" class="btn-primary" style="margin-top:8px;">Pay with Paystack</button>
+      <div id="fund-result" class="muted" style="margin-top:8px;"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Recent Wallet Activity</h3>
+    <table class="admin-table">
+      <thead><tr><th>Date</th><th>Type</th><th>Amount</th><th>Status</th></tr></thead>
+      <tbody>
+      {% for t in transactions %}
+        <tr>
+          <td>{{ t['created_at'] }}</td>
+          <td>{{ t['kind']|capitalize }}</td>
+          <td style="color:{{ 'var(--accent2)' if t['amount']>=0 else 'var(--danger)' }}">
+            {{ '+' if t['amount']>=0 else '' }}${{ '%.2f'|format(t['amount']) }}
+          </td>
+          <td><span class="status-tag status-{{ 'delivered' if t['status']=='success' else ('pending' if t['status']=='pending' else 'cancelled') }}">{{ t['status'] }}</span></td>
+        </tr>
+      {% else %}
+        <tr><td colspan="4">No wallet activity yet.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<h2 style="margin-top:30px;">My Purchases</h2>
+{% for row in orders_with_creds %}
+<div class="card" style="margin-bottom:14px;">
+  <div style="display:flex;justify-content:space-between;align-items:center;">
+    <strong>{{ row.order['order_ref'] }}</strong>
+    <span class="status-tag status-{{ row.order['status'] }}">{{ row.order['status']|capitalize }}</span>
+  </div>
+  <ul style="margin:10px 0;">
+    {% for it in row['items'] %}
+    <li>{{ it['title'] }} x{{ it['qty'] }} — ${{ '%.2f'|format(it['line_total']) }}</li>
+    {% endfor %}
+  </ul>
+  <p class="muted">Total: ${{ '%.2f'|format(row.order['total']) }} — placed {{ row.order['created_at'] }}</p>
+
+  {% if row.credentials %}
+  <div class="creds-box">
+    <h4>🔑 Delivered Login Details</h4>
+    {% for c in row.credentials %}
+    <div class="cred-entry">
+      <p><strong>{{ c['item_title'] }}</strong></p>
+      {% if c['username_or_email'] %}<p>Username/Email: <code>{{ c['username_or_email'] }}</code></p>{% endif %}
+      {% if c['password'] %}<p>Password: <code>{{ c['password'] }}</code></p>{% endif %}
+      {% if c['extra_info'] %}<p class="muted">{{ c['extra_info'] }}</p>{% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="muted">⏳ Login details have not been delivered yet. We'll update this once ready.</p>
+  {% endif %}
+</div>
+{% else %}
+<p class="muted">You haven't purchased anything yet.</p>
+{% endfor %}
+
+{% endblock %}
+{% block scripts %}
+<script>
+document.getElementById('fund-btn').addEventListener('click', () => {
+  document.getElementById('fund-form').style.display = 'block';
+});
+document.getElementById('fund-submit').addEventListener('click', async () => {
+  const amount = parseFloat(document.getElementById('fund-amount').value);
+  const resultEl = document.getElementById('fund-result');
+  if (!amount || amount < 1) { resultEl.textContent = 'Enter a valid amount (min $1).'; return; }
+  resultEl.textContent = 'Starting payment...';
+  const resp = await fetch('/wallet/fund/init', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({amount_usd: amount})
+  });
+  const data = await resp.json();
+  if (data.authorization_url) {
+    window.location.href = data.authorization_url;
+  } else {
+    resultEl.textContent = data.error || 'Could not start payment.';
+  }
+});
+</script>
+{% endblock %}

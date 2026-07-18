@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}Admin - IPNET{% endblock %}</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="admin-body">
+<div class="admin-shell">
+  <aside class="admin-sidebar">
+    <a href="{{ url_for('index') }}" class="logo">IP<span>NET</span></a>
+    <nav>
+      <a href="{{ url_for('admin_dashboard') }}">Dashboard</a>
+      <a href="{{ url_for('admin_categories') }}">Categories</a>
+      <a href="{{ url_for('admin_listings') }}">Listings & Prices</a>
+      <a href="{{ url_for('admin_orders') }}">Orders</a>
+      <a href="{{ url_for('admin_users') }}">Users & Wallets</a>
+      <a href="{{ url_for('admin_logout') }}">Logout</a>
+    </nav>
+  </aside>
+  <main class="admin-content">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for category, message in messages %}
+        <div class="flash flash-{{ category }}">{{ message }}</div>
+      {% endfor %}
+    {% endwith %}
+    {% block admin_content %}{% endblock %}
+  </main>
+</div>
+</body>
+</html>
