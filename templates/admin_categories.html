@@ -4,16 +4,18 @@
 
 <div class="card">
   <h3>Add New Category</h3>
-  <form method="post" action="{{ url_for('admin_add_category') }}" class="inline-form">
+  <form method="post" action="{{ url_for('admin_add_category') }}" enctype="multipart/form-data" class="inline-form">
     <input type="text" name="name" placeholder="Category name (e.g. Apex Legends Accounts)" required>
     <select name="section">
       {% for key, label in section_labels.items() %}
       <option value="{{ key }}">{{ label }}</option>
       {% endfor %}
     </select>
-    <input type="text" name="icon" placeholder="Icon (emoji)" maxlength="4" value="🎮" style="width:70px;">
+    <input type="text" name="icon" placeholder="Emoji fallback" maxlength="4" value="🎮" style="width:90px;">
+    <input type="file" name="logo_file" accept="image/png,image/jpeg,image/webp,image/gif" title="Category image (optional, overrides emoji)">
     <button type="submit" class="btn-primary">Add Category</button>
   </form>
+  <p class="muted" style="margin-top:8px;">Category image is optional — if uploaded, it replaces the emoji icon on the storefront.</p>
 </div>
 
 <div class="filter-tabs">
@@ -24,13 +26,25 @@
 </div>
 
 <table class="admin-table">
-  <thead><tr><th>Icon</th><th>Name</th><th>Section</th><th></th></tr></thead>
+  <thead><tr><th>Category Image</th><th>Name</th><th>Section</th><th>Update Image</th><th></th></tr></thead>
   <tbody>
   {% for c in categories %}
     <tr>
-      <td>{{ c['icon'] }}</td>
+      <td>
+        {% if c['icon_image'] %}
+          <img src="{{ c['icon_image'] }}" alt="" style="height:32px;width:32px;object-fit:contain;border-radius:6px;">
+        {% else %}
+          <span style="font-size:1.4rem;">{{ c['icon'] }}</span>
+        {% endif %}
+      </td>
       <td><a href="{{ url_for('admin_listings', category_id=c['id']) }}">{{ c['name'] }}</a></td>
       <td>{{ section_labels.get(c['section'], c['section']) }}</td>
+      <td>
+        <form method="post" action="{{ url_for('admin_update_category_logo', cat_id=c['id']) }}" enctype="multipart/form-data" class="inline-form">
+          <input type="file" name="logo_file" accept="image/png,image/jpeg,image/webp,image/gif" style="max-width:160px;">
+          <button type="submit" class="btn-primary-sm">Save</button>
+        </form>
+      </td>
       <td>
         <form method="post" action="{{ url_for('admin_delete_category', cat_id=c['id']) }}" onsubmit="return confirm('Delete this category and all its listings?')">
           <button type="submit" class="btn-danger-sm">Delete</button>
