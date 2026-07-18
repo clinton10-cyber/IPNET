@@ -9,14 +9,21 @@
 <div class="dash-grid">
   <div class="card wallet-card">
     <h3>Wallet Balance</h3>
-    <div class="wallet-balance">${{ '%.2f'|format(user['wallet_balance']) }}</div>
-    <p class="muted">≈ ₦{{ '{:,.0f}'.format(user['wallet_balance'] * ngn_rate) }} at current rate</p>
-    <button id="fund-btn" class="btn-primary">Fund Wallet</button>
-    <div id="fund-form" style="display:none;margin-top:12px;">
-      <input type="number" id="fund-amount" min="1" step="1" placeholder="Amount in USD">
-      <button id="fund-submit" class="btn-primary" style="margin-top:8px;">Pay with Paystack</button>
-      <div id="fund-result" class="muted" style="margin-top:8px;"></div>
+    <div class="wallet-balance">{{ fmt_price(user['wallet_balance']) }}</div>
+    <p class="muted">≈ ₦{{ '{:,.0f}'.format(user['wallet_balance'] * ngn_rate) }} at current rate (USD balance: ${{ '%.2f'|format(user['wallet_balance']) }})</p>
+
+    {% if user['dva_account_number'] %}
+    <div class="dva-box">
+      <p class="muted" style="margin-bottom:6px;">Send money anytime to this account — it credits your wallet automatically:</p>
+      <div class="dva-number">{{ user['dva_account_number'] }}</div>
+      <p><strong>{{ user['dva_bank_name'] }}</strong></p>
+      <p class="muted">{{ user['dva_account_name'] }}</p>
     </div>
+    {% elif paystack_configured %}
+    <p class="muted">Setting up your personal funding account... refresh this page in a moment.</p>
+    {% else %}
+    <p class="muted">Wallet funding isn't set up yet. Contact support to fund your wallet manually.</p>
+    {% endif %}
   </div>
 
   <div class="card">
@@ -75,27 +82,4 @@
 <p class="muted">You haven't purchased anything yet.</p>
 {% endfor %}
 
-{% endblock %}
-{% block scripts %}
-<script>
-document.getElementById('fund-btn').addEventListener('click', () => {
-  document.getElementById('fund-form').style.display = 'block';
-});
-document.getElementById('fund-submit').addEventListener('click', async () => {
-  const amount = parseFloat(document.getElementById('fund-amount').value);
-  const resultEl = document.getElementById('fund-result');
-  if (!amount || amount < 1) { resultEl.textContent = 'Enter a valid amount (min $1).'; return; }
-  resultEl.textContent = 'Starting payment...';
-  const resp = await fetch('/wallet/fund/init', {
-    method: 'POST', headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({amount_usd: amount})
-  });
-  const data = await resp.json();
-  if (data.authorization_url) {
-    window.location.href = data.authorization_url;
-  } else {
-    resultEl.textContent = data.error || 'Could not start payment.';
-  }
-});
-</script>
 {% endblock %}
