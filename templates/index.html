@@ -2,8 +2,29 @@
 {% block content %}
 <section class="hero">
   <h1>Buy Gaming Accounts, Boosts, Credits & Social Media Growth</h1>
-  <p>Trusted worldwide. 50+ games supported. Instant categories for every platform.</p>
+  <p>Trusted worldwide. 50+ games supported. Prices shown in your local currency.</p>
 </section>
+
+{% if games %}
+<section class="section-block">
+  <div class="section-block-header">
+    <h2>Browse by Game</h2>
+    <a href="{{ url_for('games_hub') }}" class="see-all">See all games →</a>
+  </div>
+  <div class="grid cat-grid">
+    {% for g in games %}
+    <a class="card cat-card" href="{{ url_for('game_view', game_id=g['id']) }}">
+      {% if g['image_url'] %}
+        <img src="{{ g['image_url'] }}" alt="{{ g['name'] }}" class="cat-logo-img">
+      {% else %}
+        <div class="cat-icon">🎮</div>
+      {% endif %}
+      <div class="cat-name">{{ g['name'] }}</div>
+    </a>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
 
 {% if featured %}
 <section class="featured">
@@ -11,10 +32,12 @@
   <div class="grid">
     {% for item in featured %}
     <div class="card listing-card">
+      {% if item['image_url'] %}<img src="{{ item['image_url'] }}" alt="{{ item['title'] }}" class="listing-img">{% endif %}
       <div class="card-badge">{{ section_labels.get(item['section'], '') }}</div>
+      {% if item['game_name'] %}<div class="card-badge game-badge">{{ item['game_name'] }}</div>{% endif %}
       <h3>{{ item['title'] }}</h3>
       <p class="muted">{{ item['cat_name'] }}</p>
-      <div class="price">${{ '%.2f'|format(item['price']) }}</div>
+      <div class="price">{{ fmt_price(item['price']) }}</div>
       <button class="btn-primary add-to-cart" data-id="{{ item['id'] }}" data-title="{{ item['title'] }}" data-price="{{ item['price'] }}">Add to Cart</button>
     </div>
     {% endfor %}
@@ -31,7 +54,11 @@
   <div class="grid cat-grid">
     {% for c in s.categories %}
     <a class="card cat-card" href="{{ url_for('category_view', cat_id=c['id']) }}">
-      <div class="cat-icon">{{ c['icon'] }}</div>
+      {% if c['icon_image'] %}
+        <img src="{{ c['icon_image'] }}" alt="{{ c['name'] }}" class="cat-logo-img">
+      {% else %}
+        <div class="cat-icon">{{ c['icon'] }}</div>
+      {% endif %}
       <div class="cat-name">{{ c['name'] }}</div>
     </a>
     {% endfor %}
