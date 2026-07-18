@@ -1,5 +1,12 @@
 let cart = [];
 
+function fmtPrice(usd) {
+  const cur = window.IPNET_CURRENCY || { symbol: "$", rate: 1 };
+  const converted = usd * cur.rate;
+  const formatted = converted >= 1000 ? converted.toLocaleString(undefined, { maximumFractionDigits: 0 }) : converted.toFixed(2);
+  return cur.symbol + formatted;
+}
+
 function saveCart() {
   document.getElementById("cart-count").textContent = cart.reduce((s, i) => s + i.qty, 0);
 }
@@ -12,10 +19,10 @@ function renderCart() {
     total += item.price * item.qty;
     const div = document.createElement("div");
     div.className = "cart-item";
-    div.innerHTML = `<span>${item.title} x${item.qty}</span><span>$${(item.price * item.qty).toFixed(2)} <button data-idx="${idx}" class="remove-item">✕</button></span>`;
+    div.innerHTML = `<span>${item.title} x${item.qty}</span><span>${fmtPrice(item.price * item.qty)} <button data-idx="${idx}" class="remove-item">✕</button></span>`;
     container.appendChild(div);
   });
-  document.getElementById("cart-total").textContent = "$" + total.toFixed(2);
+  document.getElementById("cart-total").textContent = fmtPrice(total);
   document.querySelectorAll(".remove-item").forEach(btn => {
     btn.addEventListener("click", (e) => {
       cart.splice(parseInt(e.target.dataset.idx), 1);
