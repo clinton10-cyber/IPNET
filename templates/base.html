@@ -6,18 +6,32 @@
 <title>{% block title %}IPNET - Buy Gaming Accounts, Boosts & Social Media Services{% endblock %}</title>
 <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
-<body data-logged-in="{{ '1' if current_user else '0' }}">
+<body data-logged-in="{{ '1' if current_user else '0' }}" data-currency="{{ display_currency }}">
 <header class="site-header">
   <div class="header-inner">
-    <a href="{{ url_for('index') }}" class="logo">IP<span>NET</span></a>
+    <a href="{{ url_for('index') }}" class="logo">
+      {% if site_logo %}
+        <img src="{{ site_logo }}" alt="IPNET" class="logo-img">
+      {% else %}
+        IP<span>NET</span>
+      {% endif %}
+    </a>
     <form class="search-bar" action="{{ url_for('search') }}" method="get">
       <input type="text" name="q" placeholder="Search games, accounts, boosts, social services..." value="{{ request.args.get('q','') }}">
       <button type="submit">Search</button>
     </form>
     <div class="header-actions">
+      <form method="post" action="{{ url_for('set_currency') }}" class="currency-picker">
+        <input type="hidden" name="next" value="{{ request.full_path }}">
+        <select name="currency" onchange="this.form.submit()" title="Prices shown in this currency">
+          {% for code, info in currency_options.items() %}
+          <option value="{{ code }}" {% if code == display_currency %}selected{% endif %}>{{ code }} ({{ info.symbol }})</option>
+          {% endfor %}
+        </select>
+      </form>
       <button id="cart-btn" class="cart-btn">🛒 Cart <span id="cart-count">0</span></button>
       {% if current_user %}
-      <a href="{{ url_for('dashboard') }}" class="cart-btn">👤 ${{ '%.2f'|format(current_user['wallet_balance']) }}</a>
+      <a href="{{ url_for('dashboard') }}" class="cart-btn">👤 {{ fmt_price(current_user['wallet_balance']) }}</a>
       {% else %}
       <a href="{{ url_for('login') }}" class="cart-btn">Login</a>
       {% endif %}
@@ -25,6 +39,7 @@
   </div>
   <nav class="main-nav">
     <a href="{{ url_for('section_view', section='gaming_accounts') }}">Gaming Accounts</a>
+    <a href="{{ url_for('games_hub') }}">Browse by Game</a>
     <a href="{{ url_for('section_view', section='game_boost') }}">Boost & Credits</a>
     <a href="{{ url_for('section_view', section='social_media') }}">Social Media</a>
     <a href="{{ url_for('section_view', section='websites') }}">Websites</a>
@@ -59,9 +74,9 @@
   <div class="modal">
     <h3>Checkout</h3>
     {% if current_user %}
-    <p class="muted">Paying from your wallet balance: ${{ '%.2f'|format(current_user['wallet_balance']) }}</p>
+    <p class="muted">Paying from your wallet balance: {{ fmt_price(current_user['wallet_balance']) }}</p>
     {% else %}
-    <p class="muted">Enter your details. Works from any country — pricing shown in USD. <a href="{{ url_for('login') }}" style="color:var(--accent);">Log in</a> to pay from your wallet instead.</p>
+    <p class="muted">Enter your details. Works from any country — prices shown in your local currency. <a href="{{ url_for('login') }}" style="color:var(--accent);">Log in</a> to pay from your wallet instead.</p>
     {% endif %}
     <input id="chk-name" type="text" placeholder="Full name" value="{{ current_user['full_name'] if current_user else '' }}">
     <input id="chk-contact" type="text" placeholder="Email, Telegram, or WhatsApp contact" value="{{ current_user['email'] if current_user else '' }}">
@@ -76,6 +91,9 @@
   <p>&copy; {{ 2026 }} IPNET — Gaming Accounts, Boosting, Credits & Social Media Growth Services. Available worldwide.</p>
 </footer>
 
+<script>
+  window.IPNET_CURRENCY = { code: "{{ display_currency }}", symbol: "{{ currency_symbol }}", rate: {{ fx_rate }} };
+</script>
 <script src="{{ url_for('static', filename='js/main.js') }}"></script>
 {% block scripts %}{% endblock %}
 </body>
