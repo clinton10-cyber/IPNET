@@ -12,6 +12,7 @@
     <nav>
       <a href="{{ url_for('admin_dashboard') }}">Dashboard</a>
       <a href="{{ url_for('admin_categories') }}">Categories</a>
+      <a href="{{ url_for('admin_games') }}">Games</a>
       <a href="{{ url_for('admin_listings') }}">Listings & Prices</a>
       <a href="{{ url_for('admin_orders') }}">Orders</a>
       <a href="{{ url_for('admin_users') }}">Users & Wallets</a>
@@ -27,5 +28,6 @@
     {% block admin_content %}{% endblock %}
   </main>
 </div>
+{% block scripts %}{% endblock %}
 </body>
 </html>
