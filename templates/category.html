@@ -3,15 +3,42 @@
 {% block content %}
 <section class="page-header">
   <p class="breadcrumb"><a href="{{ url_for('section_view', section=category['section']) }}">{{ label }}</a> / {{ category['name'] }}</p>
-  <h1>{{ category['icon'] }} {{ category['name'] }}</h1>
+  <h1>
+    {% if category['icon_image'] %}<img src="{{ category['icon_image'] }}" alt="" class="cat-header-logo">{% else %}{{ category['icon'] }}{% endif %}
+    {{ category['name'] }}
+  </h1>
+  {% if games_in_category %}
+  <form method="get" class="inline-search">
+    <select name="game_id" onchange="this.form.submit()">
+      <option value="">All games</option>
+      {% for g in games_in_category %}
+      <option value="{{ g['id'] }}" {% if selected_game and selected_game|string == g['id']|string %}selected{% endif %}>{{ g['name'] }}</option>
+      {% endfor %}
+    </select>
+  </form>
+  {% endif %}
 </section>
 
 <div class="grid">
   {% for item in listings %}
   <div class="card listing-card">
+    {% if item['image_url'] %}<img src="{{ item['image_url'] }}" alt="{{ item['title'] }}" class="listing-img">{% endif %}
+    {% if gallery_map.get(item['id']) %}
+    <div class="gallery-strip">
+      {% for shot in gallery_map[item['id']] %}
+      <img src="{{ shot }}" alt="screenshot" class="gallery-thumb" onclick="window.open('{{ shot }}','_blank')">
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% if item['game_name'] %}
+    <div class="card-badge game-badge">
+      {% if item['game_image'] %}<img src="{{ item['game_image'] }}" alt="" class="game-badge-img">{% endif %}
+      {{ item['game_name'] }}
+    </div>
+    {% endif %}
     <h3>{{ item['title'] }}</h3>
     {% if item['description'] %}<p class="muted">{{ item['description'] }}</p>{% endif %}
-    <div class="price">${{ '%.2f'|format(item['price']) }}</div>
+    <div class="price">{{ fmt_price(item['price']) }}</div>
     <div class="stock-tag">{{ item['stock'] }} in stock</div>
     <button class="btn-primary add-to-cart" data-id="{{ item['id'] }}" data-title="{{ item['title'] }}" data-price="{{ item['price'] }}">Add to Cart</button>
   </div>
