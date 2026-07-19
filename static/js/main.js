@@ -94,3 +94,19 @@ document.getElementById("chk-submit").addEventListener("click", async () => {
     document.getElementById("chk-result").innerHTML = `<p style="color:#ef4444">${data.error || "Something went wrong."}</p>`;
   }
 });
+
+// Theme toggle: defaults to the OS/browser preference (handled in CSS via
+// prefers-color-scheme); a manual pick here is saved and overrides it on
+// every future visit until cleared.
+const themeToggleBtn = document.getElementById("theme-toggle");
+if (themeToggleBtn) {
+  themeToggleBtn.addEventListener("click", () => {
+    const root = document.documentElement;
+    const current = root.getAttribute("data-theme");
+    const systemPrefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+    const effectiveCurrent = current || (systemPrefersDark ? "dark" : "light");
+    const next = effectiveCurrent === "dark" ? "light" : "dark";
+    root.setAttribute("data-theme", next);
+    localStorage.setItem("ipnet-theme", next);
+  });
+}
