@@ -27,8 +27,17 @@ DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
 USE_POSTGRES = bool(DATABASE_URL)
 
 if USE_POSTGRES:
-    import psycopg2
-    import psycopg2.extras
+    try:
+        import psycopg2
+        import psycopg2.extras
+    except ImportError as e:
+        raise RuntimeError(
+            "DATABASE_URL is set but psycopg2 failed to import "
+            f"({e}). This is almost always a Python-version mismatch with the "
+            "precompiled psycopg2-binary wheel — check that runtime.txt / the "
+            "PYTHON_VERSION env var is pinned to a version psycopg2-binary "
+            "publishes wheels for (e.g. 3.12.x), then redeploy."
+        ) from e
 
     # Supabase/Heroku-style URLs use the postgres:// scheme; psycopg2 wants postgresql://
     if DATABASE_URL.startswith("postgres://"):
