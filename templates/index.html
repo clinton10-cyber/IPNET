@@ -14,12 +14,16 @@
   <div class="grid cat-grid">
     {% for g in games %}
     <a class="card cat-card" href="{{ url_for('game_view', game_id=g['id']) }}">
-      {% if g['image_url'] %}
-        <img src="{{ g['image_url'] }}" alt="{{ g['name'] }}" class="cat-logo-img">
-      {% else %}
-        <div class="cat-icon">{{ g['name'][0]|upper }}</div>
-      {% endif %}
-      <div class="cat-name">{{ g['name'] }}</div>
+      <div class="cat-card-media">
+        {% if g['image_url'] %}
+          <img src="{{ g['image_url'] }}" alt="{{ g['name'] }}" class="cat-bg-img">
+        {% else %}
+          <div class="cat-icon">{{ g['name'][0]|upper }}</div>
+        {% endif %}
+      </div>
+      <div class="cat-card-body">
+        <div class="cat-name">{{ g['name'] }}</div>
+      </div>
     </a>
     {% endfor %}
   </div>
@@ -35,12 +39,16 @@
   <div class="grid cat-grid">
     {% for p in platforms %}
     <a class="card cat-card" href="{{ url_for('platform_view', platform_id=p['id']) }}">
-      {% if p['image_url'] %}
-        <img src="{{ p['image_url'] }}" alt="{{ p['name'] }}" class="cat-logo-img">
-      {% else %}
-        <div class="cat-icon">{{ p['name'][0]|upper }}</div>
-      {% endif %}
-      <div class="cat-name">{{ p['name'] }}</div>
+      <div class="cat-card-media">
+        {% if p['image_url'] %}
+          <img src="{{ p['image_url'] }}" alt="{{ p['name'] }}" class="cat-bg-img">
+        {% else %}
+          <div class="cat-icon">{{ p['name'][0]|upper }}</div>
+        {% endif %}
+      </div>
+      <div class="cat-card-body">
+        <div class="cat-name">{{ p['name'] }}</div>
+      </div>
     </a>
     {% endfor %}
   </div>
@@ -76,12 +84,16 @@
   <div class="grid cat-grid">
     {% for c in s.categories %}
     <a class="card cat-card" href="{{ url_for('category_view', cat_id=c['id']) }}">
-      {% if c['icon_image'] %}
-        <img src="{{ c['icon_image'] }}" alt="{{ c['name'] }}" class="cat-logo-img">
-      {% else %}
-        <div class="cat-icon">{{ c['name'][0]|upper }}</div>
-      {% endif %}
-      <div class="cat-name">{{ c['name'] }}</div>
+      <div class="cat-card-media">
+        {% if c['icon_image'] %}
+          <img src="{{ c['icon_image'] }}" alt="{{ c['name'] }}" class="cat-bg-img">
+        {% else %}
+          <div class="cat-icon">{{ c['name'][0]|upper }}</div>
+        {% endif %}
+      </div>
+      <div class="cat-card-body">
+        <div class="cat-name">{{ c['name'] }}</div>
+      </div>
     </a>
     {% endfor %}
   </div>

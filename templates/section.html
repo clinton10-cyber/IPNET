@@ -11,12 +11,16 @@
 <div class="grid cat-grid">
   {% for c in categories %}
   <a class="card cat-card" href="{{ url_for('category_view', cat_id=c['id']) }}">
-    {% if c['icon_image'] %}
-      <img src="{{ c['icon_image'] }}" alt="{{ c['name'] }}" class="cat-logo-img">
-    {% else %}
-      <div class="cat-icon">{{ c['name'][0]|upper }}</div>
-    {% endif %}
-    <div class="cat-name">{{ c['name'] }}</div>
+    <div class="cat-card-media">
+      {% if c['icon_image'] %}
+        <img src="{{ c['icon_image'] }}" alt="{{ c['name'] }}" class="cat-bg-img">
+      {% else %}
+        <div class="cat-icon">{{ c['name'][0]|upper }}</div>
+      {% endif %}
+    </div>
+    <div class="cat-card-body">
+      <div class="cat-name">{{ c['name'] }}</div>
+    </div>
   </a>
   {% else %}
   <p>No categories found.</p>
