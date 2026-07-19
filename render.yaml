@@ -12,3 +12,11 @@ services:
         generateValue: true
       - key: SECRET_KEY
         generateValue: true
+      - key: DATABASE_URL
+        sync: false   # optional — paste your Supabase Postgres connection string here to switch off SQLite
+      - key: SUPABASE_URL
+        sync: false   # optional — e.g. https://xxxx.supabase.co, switches image uploads off local disk
+      - key: SUPABASE_SERVICE_KEY
+        sync: false   # optional — the service_role key (not anon), needed to upload
+      - key: SUPABASE_BUCKET
+        sync: false   # optional — defaults to "uploads" if unset

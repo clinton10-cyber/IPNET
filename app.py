@@ -1,6 +1,8 @@
 import os
 import sqlite3
 import secrets
+import re
+import mimetypes
 import json as json_lib
 import requests
 from datetime import datetime
@@ -14,6 +16,100 @@ DB_PATH = os.path.join(BASE_DIR, "ipnet.db")
 UPLOAD_DIR = os.path.join(BASE_DIR, "static", "uploads")
 ALLOWED_IMAGE_EXT = {"png", "jpg", "jpeg", "gif", "webp", "ico"}
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024  # 5MB
+
+# ---------------------------------------------------------------------------
+# Database backend: SQLite by default (zero setup, good for local dev/small
+# installs). Set DATABASE_URL (e.g. your Supabase "Connection string" from
+# Project Settings -> Database) to switch to Postgres instead — nothing else
+# to configure, the app detects it automatically at startup.
+# ---------------------------------------------------------------------------
+DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
+USE_POSTGRES = bool(DATABASE_URL)
+
+if USE_POSTGRES:
+    import psycopg2
+    import psycopg2.extras
+
+    # Supabase/Heroku-style URLs use the postgres:// scheme; psycopg2 wants postgresql://
+    if DATABASE_URL.startswith("postgres://"):
+        DATABASE_URL = "postgresql://" + DATABASE_URL[len("postgres://"):]
+    # Supabase requires SSL — add it if the connection string doesn't already specify one.
+    if "sslmode=" not in DATABASE_URL:
+        DATABASE_URL += ("&" if "?" in DATABASE_URL else "?") + "sslmode=require"
+
+    class PGCursor:
+        """Wraps a psycopg2 cursor so code written for sqlite3 — '?' placeholders,
+        cur.lastrowid after an INSERT — keeps working unchanged against Postgres."""
+        def __init__(self, cursor):
+            self._cursor = cursor
+            self.lastrowid = None
+
+        def execute(self, query, params=()):
+            pg_query = query.replace("?", "%s")
+            stripped = pg_query.strip().upper()
+            if stripped.startswith("INSERT") and "RETURNING" not in stripped:
+                pg_query = pg_query.rstrip().rstrip(";") + " RETURNING id"
+                self._cursor.execute(pg_query, params)
+                try:
+                    row = self._cursor.fetchone()
+                    self.lastrowid = row["id"] if row else None
+                except (psycopg2.ProgrammingError, TypeError, KeyError):
+                    self.lastrowid = None
+            else:
+                self._cursor.execute(pg_query, params)
+            return self
+
+        def fetchone(self):
+            return self._cursor.fetchone()
+
+        def fetchall(self):
+            return self._cursor.fetchall()
+
+    class PGConnection:
+        """Drop-in replacement for sqlite3.Connection, backed by psycopg2. Rows
+        come back as dict-like objects (RealDictRow) so row['col'] access — the
+        only access pattern used anywhere in this app — works identically."""
+        def __init__(self, dsn):
+            self._conn = psycopg2.connect(dsn, cursor_factory=psycopg2.extras.RealDictCursor)
+            self._conn.autocommit = False
+
+        def execute(self, query, params=()):
+            cur = PGCursor(self._conn.cursor())
+            cur.execute(query, params)
+            return cur
+
+        def executescript(self, script):
+            # psycopg2 runs multiple ';'-separated statements in one execute()
+            # as long as there are no bound parameters — true for our DDL.
+            with self._conn.cursor() as cur:
+                cur.execute(script)
+
+        def commit(self):
+            self._conn.commit()
+
+        def close(self):
+            self._conn.close()
+
+    def adapt_schema_for_postgres(schema):
+        """Translate the small handful of SQLite-only syntax bits in SCHEMA to
+        their Postgres equivalents. Everything else (types, REFERENCES,
+        DEFAULT, ON CONFLICT ... DO UPDATE) is valid in both dialects as-is."""
+        schema = schema.replace("INTEGER PRIMARY KEY AUTOINCREMENT", "SERIAL PRIMARY KEY")
+        schema = re.sub(r"TEXT DEFAULT \(datetime\('now'\)\)", "TEXT DEFAULT (NOW()::text)", schema)
+        return schema
+
+# ---------------------------------------------------------------------------
+# File storage: local disk by default. Set SUPABASE_URL + SUPABASE_SERVICE_KEY
+# (Project Settings -> API -> service_role key — NOT the anon key, uploads
+# need to bypass Row Level Security) to upload images to a Supabase Storage
+# bucket instead. Create the bucket first (Storage -> New bucket) and mark it
+# Public so the returned URLs are viewable without auth; name it via
+# SUPABASE_BUCKET if it's not called "uploads".
+# ---------------------------------------------------------------------------
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "").strip().rstrip("/")
+SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "").strip()
+SUPABASE_BUCKET = os.environ.get("SUPABASE_BUCKET", "uploads").strip()
+USE_SUPABASE_STORAGE = bool(SUPABASE_URL and SUPABASE_SERVICE_KEY)
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", secrets.token_hex(32))
@@ -141,9 +237,12 @@ def format_money(usd_amount, currency=None, rates=None):
 
 def get_db():
     if "db" not in g:
-        g.db = sqlite3.connect(DB_PATH)
-        g.db.row_factory = sqlite3.Row
-        g.db.execute("PRAGMA foreign_keys = ON")
+        if USE_POSTGRES:
+            g.db = PGConnection(DATABASE_URL)
+        else:
+            g.db = sqlite3.connect(DB_PATH)
+            g.db.row_factory = sqlite3.Row
+            g.db.execute("PRAGMA foreign_keys = ON")
     return g.db
 
 
@@ -178,6 +277,20 @@ CREATE TABLE IF NOT EXISTS listings (
     created_at TEXT DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    full_name TEXT DEFAULT '',
+    country TEXT DEFAULT '',
+    wallet_balance REAL NOT NULL DEFAULT 0,
+    paystack_customer_code TEXT DEFAULT '',
+    dva_account_number TEXT DEFAULT '',
+    dva_bank_name TEXT DEFAULT '',
+    dva_account_name TEXT DEFAULT '',
+    created_at TEXT DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS orders (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     order_ref TEXT UNIQUE NOT NULL,
@@ -190,20 +303,6 @@ CREATE TABLE IF NOT EXISTS orders (
     currency TEXT DEFAULT 'USD',
     status TEXT DEFAULT 'pending',   -- pending | paid | delivered | cancelled
     note TEXT DEFAULT '',
-    created_at TEXT DEFAULT (datetime('now'))
-);
-
-CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    email TEXT UNIQUE NOT NULL,
-    password_hash TEXT NOT NULL,
-    full_name TEXT DEFAULT '',
-    country TEXT DEFAULT '',
-    wallet_balance REAL NOT NULL DEFAULT 0,
-    paystack_customer_code TEXT DEFAULT '',
-    dva_account_number TEXT DEFAULT '',
-    dva_bank_name TEXT DEFAULT '',
-    dva_account_name TEXT DEFAULT '',
     created_at TEXT DEFAULT (datetime('now'))
 );
 
@@ -264,14 +363,18 @@ CREATE TABLE IF NOT EXISTS listing_images (
 def migrate_schema(db):
     """Idempotent, safe-to-run-every-startup migrations for installs created before
     the games/screenshots feature existed."""
-    try:
-        db.execute("ALTER TABLE listings ADD COLUMN game_id INTEGER REFERENCES games(id)")
-    except sqlite3.OperationalError:
-        pass  # column already exists
-    try:
-        db.execute("ALTER TABLE listings ADD COLUMN platform_id INTEGER REFERENCES platforms(id)")
-    except sqlite3.OperationalError:
-        pass  # column already exists
+    if USE_POSTGRES:
+        db.execute("ALTER TABLE listings ADD COLUMN IF NOT EXISTS game_id INTEGER REFERENCES games(id)")
+        db.execute("ALTER TABLE listings ADD COLUMN IF NOT EXISTS platform_id INTEGER REFERENCES platforms(id)")
+    else:
+        try:
+            db.execute("ALTER TABLE listings ADD COLUMN game_id INTEGER REFERENCES games(id)")
+        except sqlite3.OperationalError:
+            pass  # column already exists
+        try:
+            db.execute("ALTER TABLE listings ADD COLUMN platform_id INTEGER REFERENCES platforms(id)")
+        except sqlite3.OperationalError:
+            pass  # column already exists
     db.commit()
 
 
@@ -364,9 +467,13 @@ def migrate_legacy_per_game_categories(db):
 
 
 def init_db():
-    db = sqlite3.connect(DB_PATH)
-    db.row_factory = sqlite3.Row
-    db.executescript(SCHEMA)
+    if USE_POSTGRES:
+        db = PGConnection(DATABASE_URL)
+        db.executescript(adapt_schema_for_postgres(SCHEMA))
+    else:
+        db = sqlite3.connect(DB_PATH)
+        db.row_factory = sqlite3.Row
+        db.executescript(SCHEMA)
     db.commit()
     migrate_schema(db)
     seed_if_empty(db)
@@ -442,19 +549,56 @@ def allowed_image(filename):
 
 
 def save_uploaded_image(file_storage, subfolder):
-    """Save an uploaded image under static/uploads/<subfolder>/ and return its public URL path,
-    or None if no valid file was provided."""
+    """Save an uploaded image and return its public URL, or None if no valid
+    file was provided. Goes to a Supabase Storage bucket when configured
+    (see SUPABASE_URL/SUPABASE_SERVICE_KEY above), otherwise to local disk
+    under static/uploads/<subfolder>/."""
     if not file_storage or not file_storage.filename:
         return None
     if not allowed_image(file_storage.filename):
         return None
     ext = file_storage.filename.rsplit(".", 1)[1].lower()
     fname = f"{secrets.token_hex(8)}.{ext}"
+
+    if USE_SUPABASE_STORAGE:
+        url = upload_to_supabase_storage(file_storage, subfolder, fname)
+        if url:
+            return url
+        # fall through to local disk if the upload failed, so the admin
+        # action never silently loses the image
+
     folder = os.path.join(UPLOAD_DIR, subfolder)
     os.makedirs(folder, exist_ok=True)
     path = os.path.join(folder, fname)
+    file_storage.stream.seek(0)
     file_storage.save(path)
     return f"/static/uploads/{subfolder}/{fname}"
+
+
+def upload_to_supabase_storage(file_storage, subfolder, fname):
+    """Upload a file to the configured Supabase Storage bucket and return its
+    public URL, or None on failure (caller falls back to local disk)."""
+    object_path = f"{subfolder}/{fname}"
+    content_type = mimetypes.guess_type(fname)[0] or "application/octet-stream"
+    try:
+        file_storage.stream.seek(0)
+        file_bytes = file_storage.read()
+        resp = requests.post(
+            f"{SUPABASE_URL}/storage/v1/object/{SUPABASE_BUCKET}/{object_path}",
+            headers={
+                "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                "apikey": SUPABASE_SERVICE_KEY,
+                "Content-Type": content_type,
+                "x-upsert": "true",
+            },
+            data=file_bytes,
+            timeout=15,
+        )
+        if resp.status_code in (200, 201):
+            return f"{SUPABASE_URL}/storage/v1/object/public/{SUPABASE_BUCKET}/{object_path}"
+    except Exception:
+        pass
+    return None
 
 
 def get_gallery_map(listing_ids):
