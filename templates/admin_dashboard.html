@@ -8,6 +8,26 @@
   <div class="stat-card"><div class="stat-num">{{ stats.pending_orders }}</div><div>Pending Orders</div></div>
 </div>
 
+<h2>Branding</h2>
+<div class="stat-grid">
+  <div class="card">
+    <h3>Site Logo</h3>
+    {% if current_logo %}<img src="{{ current_logo }}" alt="Current logo" style="height:36px;max-width:160px;object-fit:contain;margin-bottom:8px;">{% else %}<p class="muted">No logo uploaded yet — the text logo is shown instead.</p>{% endif %}
+    <form method="post" action="{{ url_for('admin_update_site_logo') }}" enctype="multipart/form-data" class="inline-form">
+      <input type="file" name="logo_file" accept="image/png,image/jpeg,image/webp,image/gif" required>
+      <button type="submit" class="btn-primary-sm">Update Logo</button>
+    </form>
+  </div>
+  <div class="card">
+    <h3>Favicon</h3>
+    {% if current_favicon %}<img src="{{ current_favicon }}" alt="Current favicon" style="height:24px;width:24px;object-fit:contain;margin-bottom:8px;">{% else %}<p class="muted">No favicon uploaded yet.</p>{% endif %}
+    <form method="post" action="{{ url_for('admin_update_site_favicon') }}" enctype="multipart/form-data" class="inline-form">
+      <input type="file" name="favicon_file" accept="image/x-icon,image/png,.ico" required>
+      <button type="submit" class="btn-primary-sm">Update Favicon</button>
+    </form>
+  </div>
+</div>
+
 <h2>Recent Orders</h2>
 <table class="admin-table">
   <thead><tr><th>Ref</th><th>Buyer</th><th>Total</th><th>Status</th><th>Date</th></tr></thead>

@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{% block title %}IPNET - Buy Gaming Accounts, Boosts & Social Media Services{% endblock %}</title>
 <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+<link rel="sitemap" type="application/xml" title="Sitemap" href="{{ url_for('sitemap_xml') }}">
+{% if site_favicon %}<link rel="icon" href="{{ site_favicon }}">{% endif %}
 </head>
 <body data-logged-in="{{ '1' if current_user else '0' }}" data-currency="{{ display_currency }}">
 <header class="site-header">
