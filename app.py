@@ -648,6 +648,18 @@ def robots_txt():
     return Response("\n".join(lines), mimetype="text/plain")
 
 
+@app.route("/sw.js")
+def service_worker():
+    """Served from the root path (not /static/) so its default scope covers
+    the whole site — a service worker can only control paths at or below
+    the URL it's served from."""
+    response = send_from_directory(app.static_folder, "sw.js")
+    response.headers["Service-Worker-Allowed"] = "/"
+    response.headers["Content-Type"] = "application/javascript"
+    response.headers["Cache-Control"] = "no-cache"
+    return response
+
+
 # ---------------------------------------------------------------------------
 # Public storefront routes
 # ---------------------------------------------------------------------------
