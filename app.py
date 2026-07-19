@@ -5,14 +5,14 @@ import json as json_lib
 import requests
 from datetime import datetime
 from functools import wraps
-from flask import Flask, g, render_template, request, jsonify, redirect, url_for, session, flash, send_from_directory
+from flask import Flask, g, render_template, request, jsonify, redirect, url_for, session, flash, send_from_directory, Response
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 DB_PATH = os.path.join(BASE_DIR, "ipnet.db")
 UPLOAD_DIR = os.path.join(BASE_DIR, "static", "uploads")
-ALLOWED_IMAGE_EXT = {"png", "jpg", "jpeg", "gif", "webp"}
+ALLOWED_IMAGE_EXT = {"png", "jpg", "jpeg", "gif", "webp", "ico"}
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024  # 5MB
 
 app = Flask(__name__)
@@ -583,6 +583,7 @@ def inject_user():
     return {
         "current_user": current_user(),
         "site_logo": get_setting("site_logo", ""),
+        "site_favicon": get_setting("site_favicon", ""),
         "display_currency": currency,
         "currency_options": CURRENCIES,
         "currency_symbol": CURRENCIES.get(currency, {}).get("symbol", "$"),
@@ -598,6 +599,53 @@ def set_currency():
         session["currency_override"] = code
     dest = request.form.get("next") or request.referrer or url_for("index")
     return redirect(dest)
+
+
+# ---------------------------------------------------------------------------
+# SEO: sitemap.xml + robots.txt
+# ---------------------------------------------------------------------------
+
+@app.route("/sitemap.xml")
+def sitemap_xml():
+    db = get_db()
+    urls = [
+        (url_for("index", _external=True), "1.0", "daily"),
+        (url_for("games_hub", _external=True), "0.8", "daily"),
+        (url_for("platforms_hub", _external=True), "0.8", "daily"),
+    ]
+    for section in SECTION_LABELS:
+        urls.append((url_for("section_view", section=section, _external=True), "0.7", "weekly"))
+    for cat in db.execute("SELECT id FROM categories ORDER BY id").fetchall():
+        urls.append((url_for("category_view", cat_id=cat["id"], _external=True), "0.6", "weekly"))
+    for game in db.execute("SELECT id FROM games ORDER BY id").fetchall():
+        urls.append((url_for("game_view", game_id=game["id"], _external=True), "0.6", "weekly"))
+    for platform in db.execute("SELECT id FROM platforms ORDER BY id").fetchall():
+        urls.append((url_for("platform_view", platform_id=platform["id"], _external=True), "0.6", "weekly"))
+
+    xml_parts = ['<?xml version="1.0" encoding="UTF-8"?>', '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">']
+    for loc, priority, changefreq in urls:
+        xml_parts.append(
+            f"<url><loc>{loc}</loc><changefreq>{changefreq}</changefreq><priority>{priority}</priority></url>"
+        )
+    xml_parts.append("</urlset>")
+    return Response("".join(xml_parts), mimetype="application/xml")
+
+
+@app.route("/robots.txt")
+def robots_txt():
+    lines = [
+        "User-agent: *",
+        "Disallow: /admin",
+        "Disallow: /dashboard",
+        "Disallow: /checkout",
+        "Disallow: /order/",
+        "Disallow: /login",
+        "Disallow: /register",
+        "Disallow: /wallet/",
+        "",
+        f"Sitemap: {url_for('sitemap_xml', _external=True)}",
+    ]
+    return Response("\n".join(lines), mimetype="text/plain")
 
 
 # ---------------------------------------------------------------------------
@@ -1096,7 +1144,10 @@ def admin_dashboard():
         "pending_orders": db.execute("SELECT COUNT(*) c FROM orders WHERE status='pending'").fetchone()["c"],
     }
     recent_orders = db.execute("SELECT * FROM orders ORDER BY created_at DESC LIMIT 10").fetchall()
-    return render_template("admin_dashboard.html", stats=stats, recent_orders=recent_orders, current_logo=get_setting("site_logo", ""))
+    return render_template(
+        "admin_dashboard.html", stats=stats, recent_orders=recent_orders,
+        current_logo=get_setting("site_logo", ""), current_favicon=get_setting("site_favicon", ""),
+    )
 
 
 @app.route("/admin/site-logo", methods=["POST"])
@@ -1108,6 +1159,18 @@ def admin_update_site_logo():
         flash("Site logo updated", "success")
     else:
         flash("Please choose a valid image file (png, jpg, jpeg, gif, webp)", "error")
+    return redirect(url_for("admin_dashboard"))
+
+
+@app.route("/admin/site-favicon", methods=["POST"])
+@admin_required
+def admin_update_site_favicon():
+    favicon_path = save_uploaded_image(request.files.get("favicon_file"), "site")
+    if favicon_path:
+        set_setting("site_favicon", favicon_path)
+        flash("Favicon updated", "success")
+    else:
+        flash("Please choose a valid image file (ico, png)", "error")
     return redirect(url_for("admin_dashboard"))
 
 
