@@ -3,8 +3,22 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script>
+  (function() {
+    var saved = localStorage.getItem("ipnet-theme");
+    if (saved === "light" || saved === "dark") {
+      document.documentElement.setAttribute("data-theme", saved);
+    }
+  })();
+</script>
 <title>{% block title %}IPNET - Buy Gaming Accounts, Boosts & Social Media Services{% endblock %}</title>
 <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+<link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
+<link rel="apple-touch-icon" href="{{ url_for('static', filename='icons/icon-192.png') }}">
+<meta name="theme-color" content="#0b0e14">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="sitemap" type="application/xml" title="Sitemap" href="{{ url_for('sitemap_xml') }}">
 {% if site_favicon %}<link rel="icon" href="{{ site_favicon }}">{% endif %}
 </head>
@@ -23,6 +37,10 @@
       <button type="submit">Search</button>
     </form>
     <div class="header-actions">
+      <button id="theme-toggle" class="theme-toggle" type="button" title="Toggle light / dark theme" aria-label="Toggle light or dark theme">
+        <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+        <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      </button>
       <form method="post" action="{{ url_for('set_currency') }}" class="currency-picker">
         <input type="hidden" name="next" value="{{ request.full_path }}">
         <select name="currency" onchange="this.form.submit()" title="Prices shown in this currency">
@@ -98,6 +116,13 @@
   window.IPNET_CURRENCY = { code: "{{ display_currency }}", symbol: "{{ currency_symbol }}", rate: {{ fx_rate }} };
 </script>
 <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+<script>
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("/sw.js").catch(() => {});
+    });
+  }
+</script>
 {% block scripts %}{% endblock %}
 </body>
 </html>
