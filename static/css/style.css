@@ -10,9 +10,68 @@
   --danger: #ef4444;
   --radius: 10px;
 }
+
+/* Light theme: applied when the OS/browser prefers light... */
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f5f7fb;
+    --bg-alt: #ffffff;
+    --card: #ffffff;
+    --border: #dde3ef;
+    --text: #171b26;
+    --muted: #6b7488;
+    --accent: #3d5fe0;
+    --accent2: #0f9d78;
+    --danger: #dc2626;
+  }
+}
+/* ...or when the user manually picks a theme with the header toggle, which
+   always wins over the system preference. */
+html[data-theme="light"] {
+  --bg: #f5f7fb;
+  --bg-alt: #ffffff;
+  --card: #ffffff;
+  --border: #dde3ef;
+  --text: #171b26;
+  --muted: #6b7488;
+  --accent: #3d5fe0;
+  --accent2: #0f9d78;
+  --danger: #dc2626;
+}
+html[data-theme="dark"] {
+  --bg: #0b0e14;
+  --bg-alt: #131826;
+  --card: #171d2e;
+  --border: #26304a;
+  --text: #e7ebf5;
+  --muted: #8b93a8;
+  --accent: #5b7fff;
+  --accent2: #22d3a5;
+  --danger: #ef4444;
+}
+
+.theme-toggle {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 34px; height: 34px; border-radius: 7px; padding: 0;
+  background: var(--card); border: 1px solid var(--border); color: var(--text); cursor: pointer;
+}
+.theme-toggle svg { width: 16px; height: 16px; }
+.theme-toggle .icon-moon { display: none; }
+html[data-theme="light"] .theme-toggle .icon-sun,
+html:not([data-theme="dark"]) .theme-toggle .icon-sun { display: none; }
+html[data-theme="light"] .theme-toggle .icon-moon,
+html:not([data-theme="dark"]) .theme-toggle .icon-moon { display: block; }
+html[data-theme="dark"] .theme-toggle .icon-sun { display: block; }
+html[data-theme="dark"] .theme-toggle .icon-moon { display: none; }
+@media (prefers-color-scheme: dark) {
+  html:not([data-theme]) .theme-toggle .icon-sun { display: block; }
+  html:not([data-theme]) .theme-toggle .icon-moon { display: none; }
+}
+
 * { box-sizing: border-box; }
 html { font-size: 16px; }
 body {
+  transition: background-color .15s, color .15s;
   margin: 0;
   font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
   background: var(--bg);
