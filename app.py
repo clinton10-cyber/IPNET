@@ -84,17 +84,33 @@ if USE_POSTGRES:
 
         def execute(self, query, params=()):
             cur = PGCursor(self._conn.cursor())
-            cur.execute(query, params)
+            try:
+                cur.execute(query, params)
+            except Exception:
+                # Without a rollback here, Postgres leaves the connection's
+                # transaction "aborted" and every subsequent query on it —
+                # even unrelated SELECTs later in the same request — raises
+                # InFailedSqlTransaction instead of the real error. Roll back
+                # immediately so only the query that actually failed does.
+                self._conn.rollback()
+                raise
             return cur
 
         def executescript(self, script):
             # psycopg2 runs multiple ';'-separated statements in one execute()
             # as long as there are no bound parameters — true for our DDL.
-            with self._conn.cursor() as cur:
-                cur.execute(script)
+            try:
+                with self._conn.cursor() as cur:
+                    cur.execute(script)
+            except Exception:
+                self._conn.rollback()
+                raise
 
         def commit(self):
             self._conn.commit()
+
+        def rollback(self):
+            self._conn.rollback()
 
         def close(self):
             self._conn.close()
@@ -259,6 +275,11 @@ def get_db():
 def close_db(exception=None):
     db = g.pop("db", None)
     if db is not None:
+        try:
+            if exception is not None:
+                db.rollback()
+        except Exception:
+            pass
         db.close()
 
 
@@ -484,12 +505,27 @@ def init_db():
         db.row_factory = sqlite3.Row
         db.executescript(SCHEMA)
     db.commit()
-    migrate_schema(db)
-    seed_if_empty(db)
-    seed_games_if_empty(db)
-    seed_platforms_if_empty(db)
-    migrate_legacy_per_game_categories(db)
-    migrate_legacy_social_categories_to_platform(db)
+    # Each step runs against the same connection. If one step raises, roll
+    # back before moving on so it can't leave Postgres's transaction in an
+    # "aborted" state that poisons every step (and every later request)
+    # after it — log it instead of dying silently or corrupting the rest
+    # of boot.
+    for step in (
+        migrate_schema,
+        seed_if_empty,
+        seed_games_if_empty,
+        seed_platforms_if_empty,
+        migrate_legacy_per_game_categories,
+        migrate_legacy_social_categories_to_platform,
+    ):
+        try:
+            step(db)
+        except Exception as e:
+            print(f"[init_db] {step.__name__} failed, skipping: {e}")
+            try:
+                db.rollback()
+            except Exception:
+                pass
     db.close()
 
 
